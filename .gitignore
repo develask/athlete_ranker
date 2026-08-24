@@ -221,3 +221,4 @@ __marimo__/
 # asier
 __MACOSX/
 __pycache__/
+data/processed/

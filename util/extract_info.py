@@ -3,34 +3,37 @@ import os
 
 def read_data_csv(file_path):
     """
-    return a list of lists, where each inner list represents a row in the CSV file.
-    it also returns a second list with the header of the CSV file.
+    Return the CSV rows and header.
     """
     data = []
-    with open(file_path, 'r') as file:
+    with open(file_path, 'r', newline='', encoding='utf-8') as file:
         csv_reader = csv.reader(file)
         header = next(csv_reader)
         for row in csv_reader:
             data.append(row)
     return data, header
 
-def extract_all_years(years=None):
-    files = os.listdir('../data/')
+def extract_all_years(years=None, data_dir=None):
+    if data_dir is None:
+        data_dir = os.path.join(os.path.dirname(__file__), '..', 'data', 'raw')
+
+    files = os.listdir(data_dir)
     data = []
+    header = None
     for file in files:
         if file.endswith('.csv'):
             year = file.split('.')[0]
             if years is None or year in years:
-                file_path = os.path.join('../data/', file)
+                file_path = os.path.join(data_dir, file)
                 year_data, header = read_data_csv(file_path)
                 data.extend(year_data)
+    if header is None:
+        raise ValueError(f'No CSV files found in {data_dir}')
     return data, header
 
 def convert2json(data, header):
     """
-    Given a list of data rows and the corresponding header, this function 
-    reorganizes hierarchicaly the data into a list of dictionaries. each dictionary represents
-    a "regata" and contains regata info. then it contains a number of different pruebas with their corresponding info and results. 
+    Convert flat CSV rows into nested regata/prueba dictionaries.
     """
     # map header names to indices for safe access
     idx = {name: i for i, name in enumerate(header)}
@@ -105,18 +108,15 @@ def convert2json(data, header):
 
 def additional_info(json_data):
     """
-    Extract for each prueba the following information:
-    - distancia_exacta: 500, 1000, 2000, 5000, 10000
-    - tipo: sprint, fondo, maraton, mar, dragon
-    - sexo: masculino, femenino, mixto
-    - embarcacion_tipo: kayak, canoa, outrigger, surfski, dragon_boat, vaa, paddleboard, paleo
-    - embarcacion_num: number of paddlers per boat (1, 2, 4, 12, ...)
-    - categoria: infantil, cadete, senior, etc
-    - n_resultados, tiempo_min, tiempo_max, tiempo_medio, tiempo_mediana:
-      finish-time stats over the prueba's results (HH:MM:SS.ff)
+        Extract metadata and finish-time statistics for each prueba. The output
+        keeps only aguas_tranquilas and mar pruebas, excluding paleo and
+        paddleboard boats.
 
-    Only pruebas whose tipo is fondo/sprint/maraton/mar/dragon are kept; the
-    rest (aguas bravas, slalom, descenso, paracanoe) are discarded.
+        Fields extracted include:
+        - distancia_exacta, tipo, sexo, categoria
+        - embarcacion_tipo, embarcacion_num
+        - n_resultados, tiempo_min, tiempo_max, tiempo_medio, tiempo_mediana
+            (finish-time statistics formatted as HH:MM:SS.ff)
     """
     import re
     import unicodedata
@@ -152,10 +152,7 @@ def additional_info(json_data):
         'BENJAMIN': 'benjamin', 'BEN': 'benjamin',
         'PREBENJAMIN': 'prebenjamin', 'PREBE': 'prebenjamin', 'PREB': 'prebenjamin',
         'PBENJA': 'prebenjamin', 'PBENJ': 'prebenjamin', 'PBJ': 'prebenjamin',
-        'PROMESA': 'promesa',
-        'OPEN': 'open',
-        'ABSOLUTA': 'absoluta', 'ABSOLUTO': 'absoluta', 'ABSOLUT': 'absoluta', 'ABS': 'absoluta',
-        'ABRIDORES': 'abridor', 'ABRIDOR': 'abridor', 'ABRIODORES': 'abridor', 'ABR': 'abridor',
+        'SUB23': 'sub23', 'SUB-23': 'sub23', 'S23': 'sub23',
     }
     # group 1 = base code, group 2 = optional attached age suffix (e.g. "40-44", "3554", "-A")
     cat_pattern = re.compile(
@@ -180,7 +177,6 @@ def additional_info(json_data):
         'PALEO': 'paleo',
     }
     DISCARDED_EMBARCACION_TIPOS = {'paleo', 'paddleboard'}
-
     ALLOWED_TIPOS = {'aguas_tranquilas', 'mar'}
 
     ignore_words = {
@@ -200,7 +196,7 @@ def additional_info(json_data):
         ('dragon', 'aguas_tranquilas'),
         ('kaiak de mar', 'mar'), ('kayak de mar', 'mar'),
         ('caiac mar', 'mar'), ('itsas kayaka', 'mar'),
-        ('aguas bravas', 'aguas_bravas'), ('augas bravas', 'aguas_bravas'), ('ur biziak', 'aguas_bravas'),
+        ('aguas bravas', 'slalom'), ('augas bravas', 'slalom'), ('ur biziak', 'slalom'),
         ('slalom', 'slalom'),
         ('descenso', 'descenso'),
     ]
@@ -250,10 +246,14 @@ def additional_info(json_data):
             # categoria: match known category codes (e.g. VET, VET-A, VET40-44, S23)
             categoria = None
             cat_span = None
-            cm = cat_pattern.search(upper)
+            category_matches = list(cat_pattern.finditer(upper))
+            cm = next(
+                (match for match in category_matches if match.group(1).upper() in {'S23', 'SUB23'}),
+                category_matches[0] if category_matches else None,
+            )
             if cm:
                 token = cm.group(1).upper()
-                categoria = cat_map.get(token, 'sub23' if re.match(r'S\d{2}', token) else token.lower())
+                categoria = cat_map.get(token, 'sub23' if token in {'S23', 'SUB23'} else token.lower())
                 cat_span = cm.span()
 
             # distancia_exacta: last standalone number with 2+ digits, ignoring
@@ -275,12 +275,10 @@ def additional_info(json_data):
             prueba['distancia_exacta'] = distancia
 
             # tipo: mar/aguas_bravas/slalom/descenso come from the regata's
-            # liga/modalidad (or a name keyword fallback for mar/dragon);
+            # liga/modalidad (or a name keyword fallback for mar);
             # everything else (sprint/fondo/maraton/dragon) is aguas_tranquilas
             if tipo_from_liga:
                 tipo = tipo_from_liga
-            elif 'dragon' in low:
-                tipo = 'aguas_tranquilas'
             elif 'mar' in low.split():
                 tipo = 'mar'
             else:
@@ -339,15 +337,14 @@ def additional_info(json_data):
             and p['embarcacion_tipo'] not in DISCARDED_EMBARCACION_TIPOS
         ]
 
-    # blank out categorias rarer than prebenjamin (i.e. open and below) - too
-    # sparse/noisy to be meaningful (typos, one-off codes, misc classifications)
-    cat_counts = Counter(
-        p['categoria'] for reg in json_data for p in reg['pruebas'] if p['categoria']
-    )
-    threshold = cat_counts.get('prebenjamin', 0)
+    # Keep only the canonical categories defined in cat_map.
+    kept_categories = {
+        'infantil', 'cadete', 'senior', 'junior', 'veterano',
+        'alevin', 'benjamin', 'prebenjamin', 'sub23',
+    }
     for reg in json_data:
         for prueba in reg['pruebas']:
-            if prueba['categoria'] and cat_counts[prueba['categoria']] < threshold:
+            if prueba['categoria'] not in kept_categories:
                 prueba['categoria'] = None
 
     return [reg for reg in json_data if reg['pruebas']]
@@ -387,8 +384,10 @@ if __name__ == "__main__":
     json_data = convert2json(data, header)
     json_data = additional_info(json_data)
 
-    with open('output.json', 'w', encoding='utf-8') as f:
+    output_dir = os.path.join(os.path.dirname(__file__), '..', 'data', 'processed')
+    with open(os.path.join(output_dir, 'output.json'), 'w', encoding='utf-8') as f:
         import json
         json.dump(json_data, f, indent=4)
 
-    write_csv(json_data, 'output.csv')
+    # helper CSV for manual inspection of the extracted fields, json is the canonical source of data
+    write_csv(json_data, os.path.join(output_dir, 'output.csv'))
