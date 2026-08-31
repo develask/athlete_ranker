@@ -1,6 +1,7 @@
 import math
 import re
 from collections import Counter, OrderedDict
+from copy import copy
 from datetime import datetime
 
 MIN_VALID_TIME_SECONDS = 10.0
@@ -227,6 +228,7 @@ class PerformanceGroup:
         self.distance_is_known = distance_is_known
 
         self.entries = []
+        self.evaluation_entries = []
         self.source_pruebas = []
         self.cleaning_stats = Counter()
 
@@ -572,6 +574,18 @@ def clean_performance_group(group):
 
         valid_entries.append(entry)
 
+    # Evaluation remains strictly within each original prueba. Copies are
+    # required because merged-group deduplication below mutates representative
+    # entries and may collapse the same crew across different pruebas.
+    evaluation_entries = []
+    entries_by_prueba = OrderedDict()
+    for entry in valid_entries:
+        entries_by_prueba.setdefault(entry.source_prueba_index, []).append(copy(entry))
+
+    for prueba_entries in entries_by_prueba.values():
+        cleaned_entries, _, _ = _collapse_near_duplicate_entries(prueba_entries)
+        evaluation_entries.extend(cleaned_entries)
+
     valid_entries, duplicates_removed, duplicate_clusters = (
         _collapse_near_duplicate_entries(valid_entries)
     )
@@ -609,6 +623,7 @@ def clean_performance_group(group):
         stats["group_has_remaining_athlete_overlap"] = 1
 
     group.entries = valid_entries
+    group.evaluation_entries = evaluation_entries
     group.cleaning_stats = stats
     group.usable = len(valid_entries) >= 2
 

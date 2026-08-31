@@ -12,10 +12,14 @@ DEFAULT_ELO = 1500.0
 # Provisional until chronological backtesting.
 K_FACTOR = 30.0
 
+FIELD_SIZE_REFERENCE = 20.0
+FIELD_SIZE_ALPHA = 0.25
+FIELD_SIZE_MIN_MULTIPLIER = 0.70
+FIELD_SIZE_MAX_MULTIPLIER = 1.75
+
 # U = lambda / (lambda + n_effective)
-LAMBDA_LENGTH = 10.0
-LAMBDA_TIPO = 5.0
-LAMBDA_BOAT = 5.0
+PRIMARY_LAMBDA = 10.0
+MODIFIER_LAMBDA = 5.0
 
 LENGTH_CLASSES = ("super_sprint", "sprint", "fondo", "maraton")
 
@@ -124,11 +128,16 @@ class GroupProcessResult:
 
         self.team_ratings = []
         self.team_base_deltas = []
+        self.n_entries = 0
+        self.base_k = None
+        self.field_size_multiplier = None
+        self.effective_k = None
 
         self.athlete_updates = {}
         self.stats = Counter()
 
         self.evaluation = {
+            "pruebas_evaluated": 0,
             "pairwise_comparisons": 0,
             "pairwise_decisive": 0,
             "pairwise_ties": 0,
@@ -261,7 +270,7 @@ def uncertainty_factor(n_effective, lambda_):
 def length_uncertainty(athlete, length_class):
     rating = athlete.length_ratings[length_class]
 
-    return uncertainty_factor(rating.n_effective, LAMBDA_LENGTH)
+    return uncertainty_factor(rating.n_effective, PRIMARY_LAMBDA)
 
 
 def tipo_uncertainty(athlete, tipo):
@@ -274,7 +283,7 @@ def tipo_uncertainty(athlete, tipo):
 
     n_effective = 0.0 if modifier is None else modifier.n_effective
 
-    return uncertainty_factor(n_effective, LAMBDA_TIPO)
+    return uncertainty_factor(n_effective, MODIFIER_LAMBDA)
 
 
 def boat_uncertainty(athlete, boat):
@@ -287,7 +296,7 @@ def boat_uncertainty(athlete, boat):
 
     n_effective = 0.0 if modifier is None else modifier.n_effective
 
-    return uncertainty_factor(n_effective, LAMBDA_BOAT)
+    return uncertainty_factor(n_effective, MODIFIER_LAMBDA)
 
 
 # ============================================================
@@ -297,6 +306,41 @@ def boat_uncertainty(athlete, boat):
 
 def expected_score(rating_a, rating_b):
     return 1.0 / (1.0 + 10.0 ** ((rating_b - rating_a) / 400.0))
+
+
+def field_size_multiplier(
+    n_entries,
+    reference=FIELD_SIZE_REFERENCE,
+    alpha=FIELD_SIZE_ALPHA,
+    min_multiplier=FIELD_SIZE_MIN_MULTIPLIER,
+    max_multiplier=FIELD_SIZE_MAX_MULTIPLIER,
+):
+    if n_entries <= 0:
+        raise ValueError("n_entries must be positive")
+    if reference <= 0:
+        raise ValueError("reference must be positive")
+    if min_multiplier <= 0 or max_multiplier < min_multiplier:
+        raise ValueError("field-size multiplier bounds are invalid")
+
+    raw = (float(n_entries) / float(reference)) ** float(alpha)
+    return max(float(min_multiplier), min(float(max_multiplier), raw))
+
+
+def effective_k(
+    base_k,
+    n_entries,
+    reference=FIELD_SIZE_REFERENCE,
+    alpha=FIELD_SIZE_ALPHA,
+    min_multiplier=FIELD_SIZE_MIN_MULTIPLIER,
+    max_multiplier=FIELD_SIZE_MAX_MULTIPLIER,
+):
+    return float(base_k) * field_size_multiplier(
+        n_entries=n_entries,
+        reference=reference,
+        alpha=alpha,
+        min_multiplier=min_multiplier,
+        max_multiplier=max_multiplier,
+    )
 
 
 def actual_pairwise_score(entry_a, entry_b):
@@ -331,7 +375,15 @@ def get_team_rating(athletes, entry, length_class, tipo, boat):
     return sum(ratings) / len(ratings)
 
 
-def calculate_team_base_deltas(group, team_ratings, k=K_FACTOR):
+def calculate_team_base_deltas(
+    group,
+    team_ratings,
+    k=K_FACTOR,
+    field_size_reference=FIELD_SIZE_REFERENCE,
+    field_size_alpha=FIELD_SIZE_ALPHA,
+    field_size_min_multiplier=FIELD_SIZE_MIN_MULTIPLIER,
+    field_size_max_multiplier=FIELD_SIZE_MAX_MULTIPLIER,
+):
     """
     Pairwise multiplayer Elo.
 
@@ -349,6 +401,15 @@ def calculate_team_base_deltas(group, team_ratings, k=K_FACTOR):
 
     if n < 2:
         return [0.0] * n
+
+    k_effective = effective_k(
+        base_k=k,
+        n_entries=n,
+        reference=field_size_reference,
+        alpha=field_size_alpha,
+        min_multiplier=field_size_min_multiplier,
+        max_multiplier=field_size_max_multiplier,
+    )
 
     output = []
 
@@ -375,17 +436,18 @@ def calculate_team_base_deltas(group, team_ratings, k=K_FACTOR):
         actual = actual_total / opponent_count
         expected = expected_total / opponent_count
 
-        output.append(float(k) * (actual - expected))
+        output.append(k_effective * (actual - expected))
 
     return output
 
 
-def calculate_pairwise_evaluation(group, team_ratings):
+def calculate_pairwise_evaluation(entries, team_ratings):
     """
-    Pre-update prediction metrics over unordered
-    valid entry pairs.
+    Pre-update prediction metrics over unordered valid entry pairs, strictly
+    within each original prueba.
     """
     metrics = {
+        "pruebas_evaluated": 0,
         "pairwise_comparisons": 0,
         "pairwise_decisive": 0,
         "pairwise_ties": 0,
@@ -396,37 +458,52 @@ def calculate_pairwise_evaluation(group, team_ratings):
 
     epsilon = 1e-15
 
-    for i in range(len(group.entries)):
-        for j in range(i + 1, len(group.entries)):
-            entry_i = group.entries[i]
-            entry_j = group.entries[j]
+    prueba_indices = sorted({entry.source_prueba_index for entry in entries})
+    for prueba_index in prueba_indices:
+        indices = [
+            index
+            for index, entry in enumerate(entries)
+            if entry.source_prueba_index == prueba_index
+        ]
+        prueba_comparisons = 0
 
-            if entries_share_athlete(entry_i, entry_j):
-                continue
+        for local_i in range(len(indices)):
+            for local_j in range(local_i + 1, len(indices)):
+                i = indices[local_i]
+                j = indices[local_j]
+                entry_i = entries[i]
+                entry_j = entries[j]
 
-            probability = expected_score(team_ratings[i], team_ratings[j])
-            actual = actual_pairwise_score(entry_i, entry_j)
+                if entries_share_athlete(entry_i, entry_j):
+                    continue
 
-            metrics["pairwise_comparisons"] += 1
+                probability = expected_score(team_ratings[i], team_ratings[j])
+                actual = actual_pairwise_score(entry_i, entry_j)
 
-            if actual == 0.5:
-                metrics["pairwise_ties"] += 1
-            else:
-                metrics["pairwise_decisive"] += 1
+                metrics["pairwise_comparisons"] += 1
+                prueba_comparisons += 1
 
-                predicted_i_wins = probability > 0.5
-                actual_i_wins = actual == 1.0
+                if actual == 0.5:
+                    metrics["pairwise_ties"] += 1
+                else:
+                    metrics["pairwise_decisive"] += 1
 
-                if predicted_i_wins == actual_i_wins:
-                    metrics["correct_decisive"] += 1
+                    predicted_i_wins = probability > 0.5
+                    actual_i_wins = actual == 1.0
 
-            metrics["brier_sum"] += (probability - actual) ** 2
+                    if predicted_i_wins == actual_i_wins:
+                        metrics["correct_decisive"] += 1
 
-            p = min(1.0 - epsilon, max(epsilon, probability))
+                metrics["brier_sum"] += (probability - actual) ** 2
 
-            metrics["log_loss_sum"] += -(
-                actual * math.log(p) + (1.0 - actual) * math.log(1.0 - p)
-            )
+                p = min(1.0 - epsilon, max(epsilon, probability))
+
+                metrics["log_loss_sum"] += -(
+                    actual * math.log(p) + (1.0 - actual) * math.log(1.0 - p)
+                )
+
+        if prueba_comparisons:
+            metrics["pruebas_evaluated"] += 1
 
     return metrics
 
@@ -630,12 +707,31 @@ def apply_pending_update(athlete, update, group):
         modifier.last_race = group.fecha
 
 
-def process_performance_group(athletes, group, k=K_FACTOR):
+def process_performance_group(
+    athletes,
+    group,
+    k=K_FACTOR,
+    field_size_reference=FIELD_SIZE_REFERENCE,
+    field_size_alpha=FIELD_SIZE_ALPHA,
+    field_size_min_multiplier=FIELD_SIZE_MIN_MULTIPLIER,
+    field_size_max_multiplier=FIELD_SIZE_MAX_MULTIPLIER,
+):
     result = GroupProcessResult()
+    result.n_entries = len(group.entries)
+    result.base_k = float(k)
 
     if not group.usable or len(group.entries) < 2:
         result.skip_reason = "fewer_than_two_valid_entries"
         return result
+
+    result.field_size_multiplier = field_size_multiplier(
+        n_entries=result.n_entries,
+        reference=field_size_reference,
+        alpha=field_size_alpha,
+        min_multiplier=field_size_min_multiplier,
+        max_multiplier=field_size_max_multiplier,
+    )
+    result.effective_k = result.base_k * result.field_size_multiplier
 
     length_class = normalize_length_class(group.length_class)
     tipo = normalize_context(group.tipo)
@@ -664,10 +760,29 @@ def process_performance_group(athletes, group, k=K_FACTOR):
     ]
 
     team_base_deltas = calculate_team_base_deltas(
-        group=group, team_ratings=team_ratings, k=k
+        group=group,
+        team_ratings=team_ratings,
+        k=k,
+        field_size_reference=field_size_reference,
+        field_size_alpha=field_size_alpha,
+        field_size_min_multiplier=field_size_min_multiplier,
+        field_size_max_multiplier=field_size_max_multiplier,
     )
 
-    result.evaluation = calculate_pairwise_evaluation(group, team_ratings)
+    evaluation_entries = group.evaluation_entries
+    evaluation_team_ratings = [
+        get_team_rating(
+            athletes=athletes,
+            entry=entry,
+            length_class=length_class,
+            tipo=tipo,
+            boat=boat,
+        )
+        for entry in evaluation_entries
+    ]
+    result.evaluation = calculate_pairwise_evaluation(
+        evaluation_entries, evaluation_team_ratings
+    )
 
     # Calculate all appearance-level updates
     # before mutating any state.
@@ -712,14 +827,30 @@ def process_performance_group(athletes, group, k=K_FACTOR):
     return result
 
 
-def run_rating_system(groups, k=K_FACTOR, collect_group_results=False):
+def run_rating_system(
+    groups,
+    k=K_FACTOR,
+    field_size_reference=FIELD_SIZE_REFERENCE,
+    field_size_alpha=FIELD_SIZE_ALPHA,
+    field_size_min_multiplier=FIELD_SIZE_MIN_MULTIPLIER,
+    field_size_max_multiplier=FIELD_SIZE_MAX_MULTIPLIER,
+    collect_group_results=False,
+):
     athletes = {}
     stats = Counter()
     evaluation = Counter()
     group_results = [] if collect_group_results else None
 
     for group in groups:
-        result = process_performance_group(athletes=athletes, group=group, k=k)
+        result = process_performance_group(
+            athletes=athletes,
+            group=group,
+            k=k,
+            field_size_reference=field_size_reference,
+            field_size_alpha=field_size_alpha,
+            field_size_min_multiplier=field_size_min_multiplier,
+            field_size_max_multiplier=field_size_max_multiplier,
+        )
 
         if collect_group_results:
             group_results.append(result)
