@@ -32,12 +32,10 @@ from sklearn.preprocessing import FunctionTransformer, OneHotEncoder, StandardSc
 # ---------------------------------------------------------------------------
 
 LENGTH_CLASSES = (
-    'aguas_tranquilas_0_500',
-    'aguas_tranquilas_501_2000',
-    'aguas_tranquilas_2001_8000',
-    'aguas_tranquilas_over_8000',
-    'mar_0_8000',
-    'mar_over_8000',
+    'super_sprint', # <= 500m
+    'sprint',       # 501-2000m
+    'fondo',        # 2001-8000m, o mar <= 8000m
+    'maraton',       # > 8000m
 )
 
 
@@ -59,7 +57,7 @@ def length_class(tipo, distance):
             return LENGTH_CLASSES[2]
         return LENGTH_CLASSES[3]
     if tipo == 'mar':
-        return LENGTH_CLASSES[4] if distance <= 8000 else LENGTH_CLASSES[5]
+        return LENGTH_CLASSES[2] if distance <= 8000 else LENGTH_CLASSES[3]
     return None
 
 
@@ -171,6 +169,21 @@ def convert2json(data, header):
     return out
 
 
+def _parse_tiempo(t):
+    m = re.match(r'^(\d{2}):(\d{2}):(\d{2}(?:\.\d{1,2})?)$', t or '')
+    if not m:
+        return None
+    h, mn, s = m.groups()
+    return int(h) * 3600 + int(mn) * 60 + float(s)
+
+
+def _format_tiempo(seconds):
+    h = int(seconds // 3600)
+    mn = int((seconds % 3600) // 60)
+    s = seconds % 60
+    return f'{h:02d}:{mn:02d}:{s:05.2f}'
+
+
 def additional_info(json_data):
     """
         Extract metadata and finish-time statistics for each prueba. The output
@@ -186,19 +199,6 @@ def additional_info(json_data):
 
     def _strip_accents(s):
         return ''.join(c for c in unicodedata.normalize('NFKD', s) if not unicodedata.combining(c))
-
-    def _parse_tiempo(t):
-        m = re.match(r'^(\d{2}):(\d{2}):(\d{2}(?:\.\d{1,2})?)$', t or '')
-        if not m:
-            return None
-        h, mn, s = m.groups()
-        return int(h) * 3600 + int(mn) * 60 + float(s)
-
-    def _format_tiempo(seconds):
-        h = int(seconds // 3600)
-        mn = int((seconds % 3600) // 60)
-        s = seconds % 60
-        return f'{h:02d}:{mn:02d}:{s:05.2f}'
 
     # common category abbreviation map (order matters: longest/most specific first)
     # juvenil folds into junior, and the prebenjamin/abridor/absoluta variants
@@ -1162,12 +1162,10 @@ def train_length_classifier(features, n_splits=5):
         changed_predictions += changed
 
     short_labels = (
-        'AT<=500',
-        'AT501-2000',
-        'AT2001-8000',
-        'AT>8000',
-        'MAR<=8000',
-        'MAR>8000',
+        'super_sprint',
+        'sprint',
+        'fondo',
+        'maraton',
     )
     label_width = max(len(label) for label in short_labels)
 
@@ -1240,6 +1238,88 @@ def fill_length_class(data, model):
     return data
 
 
+def remove_frequently_repeated_athletes(data, min_repeated_pruebas=50):
+    """
+    Remove athletes duplicated within at least ``min_repeated_pruebas`` pruebas.
+
+    A prueba counts once for an athlete when that athlete ID occurs at least
+    twice among its results. A result is discarded only when every athlete in
+    its boat is flagged; mixed boats are preserved unchanged. Pruebas with no
+    results left are discarded. Mutates and returns ``data``.
+    """
+    repeated_pruebas_by_athlete = Counter()
+    for regata in data:
+        for prueba in regata.get('pruebas', []):
+            appearances = Counter(
+                athlete_id
+                for result in prueba.get('results', [])
+                for athlete_id in result.get('lista_palista_id', [])
+                if athlete_id not in (None, '')
+            )
+            repeated_pruebas_by_athlete.update(
+                athlete_id
+                for athlete_id, count in appearances.items()
+                if count >= 2
+            )
+
+    removed_athletes = {
+        athlete_id
+        for athlete_id, num_pruebas in repeated_pruebas_by_athlete.items()
+        if num_pruebas >= min_repeated_pruebas
+    }
+
+    removed_results = 0
+    removed_pruebas = 0
+    for regata in data:
+        retained_pruebas = []
+        for prueba in regata.get('pruebas', []):
+            retained_results = []
+            for result in prueba.get('results', []):
+                athlete_ids = [
+                    athlete_id
+                    for athlete_id in result.get('lista_palista_id', [])
+                    if athlete_id not in (None, '')
+                ]
+                if athlete_ids and all(
+                    athlete_id in removed_athletes for athlete_id in athlete_ids
+                ):
+                    removed_results += 1
+                    continue
+                retained_results.append(result)
+
+            if not retained_results:
+                removed_pruebas += 1
+                continue
+
+            prueba['results'] = retained_results
+            tiempos = [_parse_tiempo(result.get('tiempo', '')) for result in retained_results]
+            tiempos = [tiempo for tiempo in tiempos if tiempo is not None]
+            prueba['n_resultados'] = len(retained_results)
+            prueba['tiempo_min'] = _format_tiempo(min(tiempos)) if tiempos else None
+            prueba['tiempo_max'] = _format_tiempo(max(tiempos)) if tiempos else None
+            prueba['tiempo_medio'] = _format_tiempo(statistics.mean(tiempos)) if tiempos else None
+            prueba['tiempo_mediana'] = _format_tiempo(statistics.median(tiempos)) if tiempos else None
+            retained_pruebas.append(prueba)
+
+        regata['pruebas'] = retained_pruebas
+
+    flagged = sorted(
+        (
+            (athlete_id, repeated_pruebas_by_athlete[athlete_id])
+            for athlete_id in removed_athletes
+        ),
+        key=lambda item: (-item[1], str(item[0])),
+    )
+    print(
+        f'Flagged {len(removed_athletes)} athletes; removed {removed_results} results '
+        f'whose boats contained only flagged athletes, and {removed_pruebas} empty pruebas'
+    )
+    for athlete_id, num_pruebas in flagged:
+        print(f'  Athlete {athlete_id}: repeated in {num_pruebas} pruebas')
+
+    return data
+
+
 # ---------------------------------------------------------------------------
 # Pipeline entry point
 # ---------------------------------------------------------------------------
@@ -1265,7 +1345,7 @@ def build_dataset():
         accuracy_str = f"{accuracy:.1%}" if accuracy is not None else "n/a"
         print(f"  {field}: accuracy={accuracy_str} (n={n}), abstentions={abstentions}")
 
-    print("\nFilling missing sexo/tipo/embarcacion_tipo/categoria values...")
+    print("\nFilling missing sexo/tipo/embarcacion_tipo/categoria values using bootstrap...")
     filled_data = fill_missing_values(json_data)
 
     print("\nTraining length_class classifier...")
@@ -1280,6 +1360,9 @@ def build_dataset():
     )
     print(f"\nFilling {n_missing_length_class} missing length_class values...")
     filled_data = fill_length_class(filled_data, model)
+
+    print("\nRemoving frequently repeated athlete IDs...")
+    filled_data = remove_frequently_repeated_athletes(filled_data)
 
     output_path = os.path.join(
         os.path.dirname(__file__), '..', 'data', 'processed', 'dataset.json'
