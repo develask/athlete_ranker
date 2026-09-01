@@ -136,11 +136,14 @@ def classify_time(value):
     return "valid", seconds
 
 
-def team_update_factor(team_size):
+def team_update_factor(team_size, mode="inverse_sqrt"):
     if team_size <= 0:
         raise ValueError("team_size must be positive")
-
-    return 1.0 / math.sqrt(team_size)
+    if mode == "inverse_sqrt":
+        return 1.0 / math.sqrt(team_size)
+    if mode == "none":
+        return 1.0
+    raise ValueError(f"Unsupported team_update_mode: {mode}")
 
 
 def entries_share_athlete(entry_a, entry_b):
@@ -181,7 +184,6 @@ class PerformanceEntry:
         self.time_status = None
 
         self.crew_size = None
-        self.team_update_factor = None
         self.crew_size_mismatch = False
 
         self.merged_rank = None
@@ -302,7 +304,12 @@ class PerformanceGroup:
 
 
 def make_performance_group_key(
-    regata_id, fecha, prueba, source_regatta_index, prueba_index
+    regata_id,
+    fecha,
+    prueba,
+    source_regatta_index,
+    prueba_index,
+    group_pruebas=True,
 ):
     phase = normalize_text(prueba.get("prueba_fase"))
     tipo = normalize_text(prueba.get("tipo"))
@@ -323,18 +330,20 @@ def make_performance_group_key(
     ):
         return None, None
 
+    prueba_id = prueba.get("prueba_id")
+    if prueba_id is None:
+        prueba_identity = (
+            "source:" + str(source_regatta_index) + ":" + str(prueba_index)
+        )
+    else:
+        prueba_identity = str(prueba_id)
+
     if distance is None:
-        prueba_id = prueba.get("prueba_id")
-
-        if prueba_id is None:
-            prueba_identity = (
-                "source:" + str(source_regatta_index) + ":" + str(prueba_index)
-            )
-        else:
-            prueba_identity = str(prueba_id)
-
         distance_key = ("unknown_distance_prueba", prueba_identity)
         distance_is_known = False
+    elif not group_pruebas:
+        distance_key = ("known_distance_prueba", distance, prueba_identity)
+        distance_is_known = True
     else:
         distance_key = ("known_distance", distance)
         distance_is_known = True
@@ -363,7 +372,7 @@ def make_performance_group_key(
     return key, context
 
 
-def build_performance_groups(raw_data):
+def build_performance_groups(raw_data, group_pruebas=True):
     groups_by_key = OrderedDict()
     stats = Counter()
 
@@ -388,6 +397,7 @@ def build_performance_groups(raw_data):
                 prueba=prueba,
                 source_regatta_index=(regatta_index),
                 prueba_index=prueba_index,
+                group_pruebas=group_pruebas,
             )
 
             if key is None:
@@ -561,7 +571,6 @@ def clean_performance_group(group):
         entry.athlete_ids = athlete_ids
         entry.time_seconds = seconds
         entry.crew_size = len(athlete_ids)
-        entry.team_update_factor = team_update_factor(entry.crew_size)
 
         if (
             isinstance(expected_crew_size, int)
@@ -648,8 +657,8 @@ def _date_sort_key(value):
         return (1, text)
 
 
-def prepare_performance_groups(raw_data, keep_unusable=False):
-    groups, stats = build_performance_groups(raw_data)
+def prepare_performance_groups(raw_data, keep_unusable=False, group_pruebas=True):
+    groups, stats = build_performance_groups(raw_data, group_pruebas=group_pruebas)
 
     prepared = []
 

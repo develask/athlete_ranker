@@ -1,5 +1,6 @@
 import math
 from collections import Counter
+from datetime import date, datetime
 
 from performance_groups import entries_share_athlete, team_update_factor
 
@@ -22,6 +23,15 @@ PRIMARY_LAMBDA = 10.0
 MODIFIER_LAMBDA = 5.0
 
 LENGTH_CLASSES = ("super_sprint", "sprint", "fondo", "maraton")
+CONTEXT_MODES = ("modifiers", "ignore", "independent")
+TEAM_UPDATE_MODES = ("inverse_sqrt", "none")
+INACTIVITY_MODES = ("none", "evidence_decay")
+
+INACTIVITY_MODE = "evidence_decay"
+INACTIVITY_GRACE_DAYS = 365.0
+EVIDENCE_HALF_LIFE_DAYS = 730.0
+UNCERTAINTY_K_MAX_MULTIPLIER = 2.0
+PRIMARY_SWITCH_DELTA = 10
 
 LENGTH_TRANSFER = {
     "super_sprint": {
@@ -46,12 +56,20 @@ CONFIDENCE_TRANSFER = LENGTH_TRANSFER
 
 class LengthRating:
     def __init__(
-        self, elo=DEFAULT_ELO, n_direct=0, n_effective=0.0, last_direct_race=None
+        self,
+        elo=DEFAULT_ELO,
+        n_direct=0,
+        n_effective=0.0,
+        last_direct_race=None,
+        last_evidence_date=None,
+        evidence_decay_date=None,
     ):
         self.elo = float(elo)
         self.n_direct = int(n_direct)
         self.n_effective = float(n_effective)
         self.last_direct_race = last_direct_race
+        self.last_evidence_date = last_evidence_date
+        self.evidence_decay_date = evidence_decay_date
 
 
 class TipoModifier:
@@ -77,6 +95,7 @@ class AthleteState:
         self.length_ratings = {
             length_class: LengthRating() for length_class in LENGTH_CLASSES
         }
+        self.context_length_ratings = {}
 
         self.tipo_modifiers = {}
         self.boat_modifiers = {}
@@ -88,6 +107,14 @@ class AthleteState:
 
         self.tipo_race_counts = Counter()
         self.boat_race_counts = Counter()
+        self.tipo_effective_counts = Counter()
+        self.boat_effective_counts = Counter()
+        self.tipo_last_evidence_dates = {}
+        self.boat_last_evidence_dates = {}
+        self.tipo_evidence_decay_dates = {}
+        self.boat_evidence_decay_dates = {}
+
+        self.last_seen = None
 
 
 class AthletePendingUpdate:
@@ -115,6 +142,9 @@ class AthletePendingUpdate:
 
         self.team_size = None
         self.team_factor = None
+        self.uncertainty_multiplier = 1.0
+        self.context_mode = "modifiers"
+        self.context_key = None
 
         # Number of legitimate entries this
         # athlete had in this merged group.
@@ -145,6 +175,7 @@ class GroupProcessResult:
             "log_loss_sum": 0.0,
             "correct_decisive": 0,
         }
+        self.grouped_evaluation = self.evaluation.copy()
 
 
 # ============================================================
@@ -170,6 +201,131 @@ def normalize_length_class(value):
     return None
 
 
+def normalize_context_mode(value):
+    value = str(value).strip().lower()
+    if value not in CONTEXT_MODES:
+        raise ValueError(f"Unsupported context_mode: {value}")
+    return value
+
+
+def normalize_team_update_mode(value):
+    value = str(value).strip().lower()
+    if value not in TEAM_UPDATE_MODES:
+        raise ValueError(f"Unsupported team_update_mode: {value}")
+    return value
+
+
+def normalize_inactivity_mode(value):
+    value = str(value).strip().lower()
+    if value not in INACTIVITY_MODES:
+        raise ValueError(f"Unsupported inactivity_mode: {value}")
+    return value
+
+
+def parse_race_date(value):
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+
+    text = str(value).strip().replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(text).date()
+    except ValueError as exc:
+        raise ValueError(f"Invalid race date: {value}") from exc
+
+
+def inactivity_days(last_seen, race_date, grace_days=INACTIVITY_GRACE_DAYS):
+    if last_seen is None:
+        return 0.0
+    elapsed = (parse_race_date(race_date) - parse_race_date(last_seen)).days
+    return max(0.0, float(elapsed) - float(grace_days))
+
+
+def evidence_retention(
+    last_evidence_date,
+    as_of_date,
+    grace_days=INACTIVITY_GRACE_DAYS,
+    half_life_days=EVIDENCE_HALF_LIFE_DAYS,
+):
+    if last_evidence_date is None:
+        return 1.0
+    if half_life_days <= 0:
+        raise ValueError("evidence_half_life_days must be positive")
+    inactive = inactivity_days(last_evidence_date, as_of_date, grace_days)
+    return 2.0 ** (-inactive / float(half_life_days))
+
+
+def _decay_effective_value(
+    value,
+    last_evidence_date,
+    previous_decay_date,
+    as_of_date,
+    grace_days,
+    half_life_days,
+):
+    if last_evidence_date is None:
+        return float(value)
+    previous = previous_decay_date or last_evidence_date
+    previous_retention = evidence_retention(
+        last_evidence_date, previous, grace_days, half_life_days
+    )
+    current_retention = evidence_retention(
+        last_evidence_date, as_of_date, grace_days, half_life_days
+    )
+    if previous_retention <= 0:
+        return 0.0
+    return float(value) * current_retention / previous_retention
+
+
+def prepare_athlete_for_date(
+    athlete,
+    race_date,
+    inactivity_mode=INACTIVITY_MODE,
+    inactivity_grace_days=INACTIVITY_GRACE_DAYS,
+    evidence_half_life_days=EVIDENCE_HALF_LIFE_DAYS,
+):
+    """Lazily decay effective evidence before a new prediction."""
+    inactivity_mode = normalize_inactivity_mode(inactivity_mode)
+    if inactivity_mode == "none":
+        return
+
+    current_date = parse_race_date(race_date)
+    current_date_text = current_date.isoformat()
+    for ratings in [athlete.length_ratings, *athlete.context_length_ratings.values()]:
+        for rating in ratings.values():
+            rating.n_effective = _decay_effective_value(
+                rating.n_effective,
+                rating.last_evidence_date,
+                rating.evidence_decay_date,
+                current_date,
+                inactivity_grace_days,
+                evidence_half_life_days,
+            )
+            if rating.last_evidence_date is not None:
+                rating.evidence_decay_date = current_date_text
+
+    for kind in ("tipo", "boat"):
+        counts = getattr(athlete, f"{kind}_effective_counts")
+        evidence_dates = getattr(athlete, f"{kind}_last_evidence_dates")
+        decay_dates = getattr(athlete, f"{kind}_evidence_decay_dates")
+        modifiers = getattr(athlete, f"{kind}_modifiers")
+        for context in list(counts):
+            counts[context] = _decay_effective_value(
+                counts[context],
+                evidence_dates.get(context),
+                decay_dates.get(context),
+                current_date,
+                inactivity_grace_days,
+                evidence_half_life_days,
+            )
+            if evidence_dates.get(context) is not None:
+                decay_dates[context] = current_date_text
+            modifier = modifiers.get(context)
+            if modifier is not None:
+                modifier.n_effective = counts[context]
+
+
 def get_athlete(athletes, athlete_id):
     athlete_id = str(athlete_id)
 
@@ -177,6 +333,21 @@ def get_athlete(athletes, athlete_id):
         athletes[athlete_id] = AthleteState(athlete_id)
 
     return athletes[athlete_id]
+
+
+def get_length_ratings(
+    athlete, tipo=None, boat=None, context_mode="modifiers", create=True
+):
+    context_mode = normalize_context_mode(context_mode)
+    if context_mode != "independent":
+        return athlete.length_ratings
+
+    key = (normalize_context(tipo), normalize_context(boat))
+    ratings = athlete.context_length_ratings.get(key)
+    if ratings is None and create:
+        ratings = {length: LengthRating() for length in LENGTH_CLASSES}
+        athlete.context_length_ratings[key] = ratings
+    return ratings
 
 
 def initialize_primary_roles(athlete, tipo, boat):
@@ -245,12 +416,80 @@ def effective_boat_modifier(athlete, boat):
     return modifier.raw_modifier
 
 
-def get_effective_rating(athlete, length_class, tipo, boat):
-    return (
-        athlete.length_ratings[length_class].elo
-        + effective_tipo_modifier(athlete, tipo)
-        + effective_boat_modifier(athlete, boat)
+def _rebase_primary_context(athlete, kind, new_primary):
+    primary_attr = f"primary_{kind}"
+    old_primary = getattr(athlete, primary_attr)
+    if new_primary == old_primary:
+        return False
+
+    modifiers = getattr(athlete, f"{kind}_modifiers")
+    race_counts = getattr(athlete, f"{kind}_race_counts")
+    effective_counts = getattr(athlete, f"{kind}_effective_counts")
+    evidence_dates = getattr(athlete, f"{kind}_last_evidence_dates")
+    if kind == "tipo":
+        effective_modifier = effective_tipo_modifier
+        modifier_class = TipoModifier
+    else:
+        effective_modifier = effective_boat_modifier
+        modifier_class = BoatModifier
+
+    contexts = set(race_counts) | set(modifiers) | {old_primary, new_primary}
+    old_values = {
+        context: effective_modifier(athlete, context)
+        for context in contexts
+        if context is not None
+    }
+    offset = old_values[new_primary]
+
+    # Move the new primary offset into every length baseline. This preserves
+    # every effective rating exactly at the switching instant.
+    for rating in athlete.length_ratings.values():
+        rating.elo += offset
+
+    setattr(athlete, primary_attr, new_primary)
+    rebuilt = {}
+    for context, old_value in old_values.items():
+        if context == new_primary:
+            continue
+        modifier = modifiers.get(context) or modifier_class()
+        modifier.raw_modifier = old_value - offset
+        modifier.n_direct = race_counts[context]
+        modifier.n_effective = effective_counts[context]
+        modifier.last_race = evidence_dates.get(context)
+        rebuilt[context] = modifier
+    setattr(athlete, f"{kind}_modifiers", rebuilt)
+    return True
+
+
+def maybe_switch_primary_contexts(athlete, primary_switch_delta=PRIMARY_SWITCH_DELTA):
+    if primary_switch_delta is None:
+        return
+    if primary_switch_delta < 0:
+        raise ValueError("primary_switch_delta must be non-negative or None")
+
+    for kind in ("tipo", "boat"):
+        counts = getattr(athlete, f"{kind}_race_counts")
+        primary = getattr(athlete, f"primary_{kind}")
+        if primary is None or not counts:
+            continue
+        challenger = max(counts, key=lambda context: (counts[context], str(context)))
+        if (
+            challenger != primary
+            and counts[challenger] >= counts[primary] + primary_switch_delta
+        ):
+            _rebase_primary_context(athlete, kind, challenger)
+
+
+def get_effective_rating(athlete, length_class, tipo, boat, context_mode="modifiers"):
+    context_mode = normalize_context_mode(context_mode)
+    ratings = get_length_ratings(
+        athlete, tipo=tipo, boat=boat, context_mode=context_mode
     )
+    rating = ratings[length_class].elo
+    if context_mode == "modifiers":
+        rating += effective_tipo_modifier(athlete, tipo)
+        rating += effective_boat_modifier(athlete, boat)
+    return rating
 
 
 # ============================================================
@@ -267,8 +506,16 @@ def uncertainty_factor(n_effective, lambda_):
     return float(lambda_) / (float(lambda_) + n_effective)
 
 
-def length_uncertainty(athlete, length_class):
-    rating = athlete.length_ratings[length_class]
+def length_uncertainty(
+    athlete, length_class, tipo=None, boat=None, context_mode="modifiers"
+):
+    ratings = get_length_ratings(
+        athlete,
+        tipo=tipo,
+        boat=boat,
+        context_mode=context_mode,
+    )
+    rating = ratings[length_class]
 
     return uncertainty_factor(rating.n_effective, PRIMARY_LAMBDA)
 
@@ -353,18 +600,46 @@ def actual_pairwise_score(entry_a, entry_b):
     return 0.5
 
 
-def ensure_group_athletes(athletes, group, tipo, boat):
+def ensure_group_athletes(
+    athletes,
+    group,
+    tipo,
+    boat,
+    context_mode="modifiers",
+    inactivity_mode=INACTIVITY_MODE,
+    inactivity_grace_days=INACTIVITY_GRACE_DAYS,
+    evidence_half_life_days=EVIDENCE_HALF_LIFE_DAYS,
+):
     for entry in group.entries:
         for athlete_id in entry.athlete_ids:
             athlete = get_athlete(athletes, athlete_id)
 
             initialize_primary_roles(athlete, tipo=tipo, boat=boat)
+            prepare_athlete_for_date(
+                athlete,
+                group.fecha,
+                inactivity_mode=inactivity_mode,
+                inactivity_grace_days=inactivity_grace_days,
+                evidence_half_life_days=evidence_half_life_days,
+            )
+            get_length_ratings(
+                athlete,
+                tipo=tipo,
+                boat=boat,
+                context_mode=context_mode,
+            )
 
 
-def get_team_rating(athletes, entry, length_class, tipo, boat):
+def get_team_rating(
+    athletes, entry, length_class, tipo, boat, context_mode="modifiers"
+):
     ratings = [
         get_effective_rating(
-            athletes[str(athlete_id)], length_class=length_class, tipo=tipo, boat=boat
+            athletes[str(athlete_id)],
+            length_class=length_class,
+            tipo=tipo,
+            boat=boat,
+            context_mode=context_mode,
         )
         for athlete_id in entry.athlete_ids
     ]
@@ -441,10 +716,13 @@ def calculate_team_base_deltas(
     return output
 
 
-def calculate_pairwise_evaluation(entries, team_ratings):
+def calculate_pairwise_evaluation(entries, team_ratings, group_pruebas=False):
     """
-    Pre-update prediction metrics over unordered valid entry pairs, strictly
-    within each original prueba.
+    Compute pre-update metrics over unordered valid entry pairs.
+
+    By default, comparisons remain strictly within each original prueba.
+    With ``group_pruebas=True``, every entry belongs to one evaluation unit,
+    matching the merged performance group used for the Elo update.
     """
     metrics = {
         "pruebas_evaluated": 0,
@@ -458,13 +736,20 @@ def calculate_pairwise_evaluation(entries, team_ratings):
 
     epsilon = 1e-15
 
-    prueba_indices = sorted({entry.source_prueba_index for entry in entries})
-    for prueba_index in prueba_indices:
-        indices = [
-            index
-            for index, entry in enumerate(entries)
-            if entry.source_prueba_index == prueba_index
+    if group_pruebas:
+        evaluation_units = [range(len(entries))]
+    else:
+        prueba_indices = sorted({entry.source_prueba_index for entry in entries})
+        evaluation_units = [
+            [
+                index
+                for index, entry in enumerate(entries)
+                if entry.source_prueba_index == prueba_index
+            ]
+            for prueba_index in prueba_indices
         ]
+
+    for indices in evaluation_units:
         prueba_comparisons = 0
 
         for local_i in range(len(indices)):
@@ -508,25 +793,122 @@ def calculate_pairwise_evaluation(entries, team_ratings):
     return metrics
 
 
+def evaluate_performance_group(
+    athletes,
+    group,
+    context_mode="modifiers",
+    inactivity_mode=INACTIVITY_MODE,
+    inactivity_grace_days=INACTIVITY_GRACE_DAYS,
+    evidence_half_life_days=EVIDENCE_HALF_LIFE_DAYS,
+):
+    """Evaluate one canonical group without applying rating updates."""
+    empty = GroupProcessResult()
+    if not group.usable or len(group.entries) < 2:
+        return empty.evaluation, empty.grouped_evaluation
+
+    length_class = normalize_length_class(group.length_class)
+    tipo = normalize_context(group.tipo)
+    boat = normalize_context(group.embarcacion_tipo)
+    if length_class is None or tipo is None or boat is None:
+        return empty.evaluation, empty.grouped_evaluation
+
+    ensure_group_athletes(
+        athletes=athletes,
+        group=group,
+        tipo=tipo,
+        boat=boat,
+        context_mode=context_mode,
+        inactivity_mode=inactivity_mode,
+        inactivity_grace_days=inactivity_grace_days,
+        evidence_half_life_days=evidence_half_life_days,
+    )
+
+    def ratings_for(entries):
+        return [
+            get_team_rating(
+                athletes=athletes,
+                entry=entry,
+                length_class=length_class,
+                tipo=tipo,
+                boat=boat,
+                context_mode=context_mode,
+            )
+            for entry in entries
+        ]
+
+    ungrouped = calculate_pairwise_evaluation(
+        group.evaluation_entries,
+        ratings_for(group.evaluation_entries),
+    )
+    grouped = calculate_pairwise_evaluation(
+        group.entries,
+        ratings_for(group.entries),
+        group_pruebas=True,
+    )
+    return ungrouped, grouped
+
+
+def build_evaluation_group_lookup(groups):
+    """Map every source prueba to its canonical evaluation group."""
+    lookup = {}
+    for group in groups:
+        for source in group.source_pruebas:
+            key = (group.source_regatta_index, source["source_prueba_index"])
+            lookup[key] = group
+    return lookup
+
+
 # ============================================================
 # COMPONENT ALLOCATION
 # ============================================================
 
 
-def calculate_component_shares(athlete, length_class, tipo, boat):
-    u_length = length_uncertainty(athlete, length_class)
-    u_tipo = tipo_uncertainty(athlete, tipo)
-    u_boat = boat_uncertainty(athlete, boat)
+def calculate_component_uncertainties(
+    athlete, length_class, tipo, boat, context_mode="modifiers"
+):
+    context_mode = normalize_context_mode(context_mode)
+    u_length = length_uncertainty(
+        athlete, length_class, tipo=tipo, boat=boat, context_mode=context_mode
+    )
+    if context_mode == "modifiers":
+        u_tipo = tipo_uncertainty(athlete, tipo)
+        u_boat = boat_uncertainty(athlete, boat)
+    else:
+        u_tipo = 0.0
+        u_boat = 0.0
+    return {"length": u_length, "tipo": u_tipo, "boat": u_boat}
 
-    total = u_length + u_tipo + u_boat
+
+def calculate_component_shares(
+    athlete, length_class, tipo, boat, context_mode="modifiers"
+):
+    context_mode = normalize_context_mode(context_mode)
+    uncertainties = calculate_component_uncertainties(
+        athlete,
+        length_class=length_class,
+        tipo=tipo,
+        boat=boat,
+        context_mode=context_mode,
+    )
+    if context_mode != "modifiers":
+        return {"length": 1.0, "tipo": 0.0, "boat": 0.0}
+
+    total = sum(uncertainties.values())
 
     if total <= 0:
         return {"length": 1.0, "tipo": 0.0, "boat": 0.0}
 
-    return {"length": u_length / total, "tipo": u_tipo / total, "boat": u_boat / total}
+    return {name: uncertainty / total for name, uncertainty in uncertainties.items()}
 
 
-def calculate_length_deltas(athlete, raced_length, allocated_length_delta):
+def calculate_length_deltas(
+    athlete,
+    raced_length,
+    allocated_length_delta,
+    tipo,
+    boat,
+    context_mode="modifiers",
+):
     """
     Direct length receives the full allocated
     length delta.
@@ -552,24 +934,59 @@ def calculate_length_deltas(athlete, raced_length, allocated_length_delta):
             continue
 
         output[target_length] = (
-            allocated_length_delta * weight * length_uncertainty(athlete, target_length)
+            allocated_length_delta
+            * weight
+            * length_uncertainty(
+                athlete,
+                target_length,
+                tipo=tipo,
+                boat=boat,
+                context_mode=context_mode,
+            )
         )
 
     return output
 
 
 def calculate_athlete_pending_update(
-    athlete, entry, team_base_delta, length_class, tipo, boat
+    athlete,
+    entry,
+    team_base_delta,
+    length_class,
+    tipo,
+    boat,
+    context_mode="modifiers",
+    team_update_mode="inverse_sqrt",
+    uncertainty_k_max_multiplier=UNCERTAINTY_K_MAX_MULTIPLIER,
 ):
     update = AthletePendingUpdate(athlete.athlete_id)
 
     team_size = len(entry.athlete_ids)
-    factor = team_update_factor(team_size)
+    context_mode = normalize_context_mode(context_mode)
+    team_update_mode = normalize_team_update_mode(team_update_mode)
+    factor = team_update_factor(team_size, mode=team_update_mode)
+    if uncertainty_k_max_multiplier < 1:
+        raise ValueError("uncertainty_k_max_multiplier must be at least 1")
 
-    athlete_base_delta = team_base_delta * factor
+    uncertainties = calculate_component_uncertainties(
+        athlete,
+        length_class=length_class,
+        tipo=tipo,
+        boat=boat,
+        context_mode=context_mode,
+    )
+    active_uncertainty = max(uncertainties.values())
+    uncertainty_multiplier = (
+        1.0 + (float(uncertainty_k_max_multiplier) - 1.0) * active_uncertainty
+    )
+    athlete_base_delta = team_base_delta * factor * uncertainty_multiplier
 
     shares = calculate_component_shares(
-        athlete, length_class=length_class, tipo=tipo, boat=boat
+        athlete,
+        length_class=length_class,
+        tipo=tipo,
+        boat=boat,
+        context_mode=context_mode,
     )
 
     allocated_length_delta = athlete_base_delta * shares["length"]
@@ -580,6 +997,9 @@ def calculate_athlete_pending_update(
         athlete,
         raced_length=length_class,
         allocated_length_delta=(allocated_length_delta),
+        tipo=tipo,
+        boat=boat,
+        context_mode=context_mode,
     )
 
     update.base_delta = athlete_base_delta
@@ -604,6 +1024,9 @@ def calculate_athlete_pending_update(
 
     update.team_size = team_size
     update.team_factor = factor
+    update.uncertainty_multiplier = uncertainty_multiplier
+    update.context_mode = context_mode
+    update.context_key = (tipo, boat) if context_mode == "independent" else None
 
     return update
 
@@ -663,6 +1086,11 @@ def average_pending_updates(athlete_id, updates):
 
     combined.team_size = first.team_size
     combined.team_factor = sum(update.team_factor for update in updates) / count
+    combined.uncertainty_multiplier = (
+        sum(update.uncertainty_multiplier for update in updates) / count
+    )
+    combined.context_mode = first.context_mode
+    combined.context_key = first.context_key
 
     return combined
 
@@ -672,25 +1100,44 @@ def average_pending_updates(athlete_id, updates):
 # ============================================================
 
 
-def apply_pending_update(athlete, update, group):
+def apply_pending_update(
+    athlete,
+    update,
+    group,
+    primary_switch_delta=PRIMARY_SWITCH_DELTA,
+):
+    ratings = get_length_ratings(
+        athlete,
+        tipo=update.tipo,
+        boat=update.boat,
+        context_mode=update.context_mode,
+    )
     for length_class in LENGTH_CLASSES:
-        athlete.length_ratings[length_class].elo += update.length_deltas[length_class]
+        ratings[length_class].elo += update.length_deltas[length_class]
 
-    direct_rating = athlete.length_ratings[update.direct_length]
+    direct_rating = ratings[update.direct_length]
 
     direct_rating.n_direct += 1
     direct_rating.last_direct_race = group.fecha
 
     for length_class in LENGTH_CLASSES:
-        athlete.length_ratings[
-            length_class
-        ].n_effective += update.length_effective_evidence[length_class]
+        evidence = update.length_effective_evidence[length_class]
+        ratings[length_class].n_effective += evidence
+        if evidence > 0:
+            ratings[length_class].last_evidence_date = group.fecha
+            ratings[length_class].evidence_decay_date = group.fecha
 
     # One literal group count per athlete.
     athlete.tipo_race_counts[update.tipo] += 1
     athlete.boat_race_counts[update.boat] += 1
+    athlete.tipo_effective_counts[update.tipo] += update.tipo_effective_evidence
+    athlete.boat_effective_counts[update.boat] += update.boat_effective_evidence
+    athlete.tipo_last_evidence_dates[update.tipo] = group.fecha
+    athlete.boat_last_evidence_dates[update.boat] = group.fecha
+    athlete.tipo_evidence_decay_dates[update.tipo] = group.fecha
+    athlete.boat_evidence_decay_dates[update.boat] = group.fecha
 
-    if update.tipo != athlete.primary_tipo:
+    if update.context_mode == "modifiers" and update.tipo != athlete.primary_tipo:
         modifier = get_tipo_modifier(athlete, update.tipo, create=True)
 
         modifier.raw_modifier += update.tipo_delta
@@ -698,13 +1145,20 @@ def apply_pending_update(athlete, update, group):
         modifier.n_effective += update.tipo_effective_evidence
         modifier.last_race = group.fecha
 
-    if update.boat != athlete.primary_boat:
+    if update.context_mode == "modifiers" and update.boat != athlete.primary_boat:
         modifier = get_boat_modifier(athlete, update.boat, create=True)
 
         modifier.raw_modifier += update.boat_delta
         modifier.n_direct += 1
         modifier.n_effective += update.boat_effective_evidence
         modifier.last_race = group.fecha
+
+    athlete.last_seen = group.fecha
+    if update.context_mode == "modifiers":
+        maybe_switch_primary_contexts(
+            athlete,
+            primary_switch_delta=primary_switch_delta,
+        )
 
 
 def process_performance_group(
@@ -715,7 +1169,27 @@ def process_performance_group(
     field_size_alpha=FIELD_SIZE_ALPHA,
     field_size_min_multiplier=FIELD_SIZE_MIN_MULTIPLIER,
     field_size_max_multiplier=FIELD_SIZE_MAX_MULTIPLIER,
+    context_mode="modifiers",
+    team_update_mode="inverse_sqrt",
+    inactivity_mode=INACTIVITY_MODE,
+    inactivity_grace_days=INACTIVITY_GRACE_DAYS,
+    evidence_half_life_days=EVIDENCE_HALF_LIFE_DAYS,
+    uncertainty_k_max_multiplier=UNCERTAINTY_K_MAX_MULTIPLIER,
+    primary_switch_delta=PRIMARY_SWITCH_DELTA,
+    evaluation_group=None,
+    evaluate_predictions=True,
 ):
+    context_mode = normalize_context_mode(context_mode)
+    team_update_mode = normalize_team_update_mode(team_update_mode)
+    inactivity_mode = normalize_inactivity_mode(inactivity_mode)
+    if inactivity_grace_days < 0:
+        raise ValueError("inactivity_grace_days must be non-negative")
+    if evidence_half_life_days <= 0:
+        raise ValueError("evidence_half_life_days must be positive")
+    if uncertainty_k_max_multiplier < 1:
+        raise ValueError("uncertainty_k_max_multiplier must be at least 1")
+    if primary_switch_delta is not None and primary_switch_delta < 0:
+        raise ValueError("primary_switch_delta must be non-negative or None")
     result = GroupProcessResult()
     result.n_entries = len(group.entries)
     result.base_k = float(k)
@@ -745,7 +1219,16 @@ def process_performance_group(
         result.skip_reason = "missing_tipo_or_boat"
         return result
 
-    ensure_group_athletes(athletes=athletes, group=group, tipo=tipo, boat=boat)
+    ensure_group_athletes(
+        athletes=athletes,
+        group=group,
+        tipo=tipo,
+        boat=boat,
+        context_mode=context_mode,
+        inactivity_mode=inactivity_mode,
+        inactivity_grace_days=inactivity_grace_days,
+        evidence_half_life_days=evidence_half_life_days,
+    )
 
     # Freeze all pre-group team ratings.
     team_ratings = [
@@ -755,6 +1238,7 @@ def process_performance_group(
             length_class=length_class,
             tipo=tipo,
             boat=boat,
+            context_mode=context_mode,
         )
         for entry in group.entries
     ]
@@ -769,20 +1253,15 @@ def process_performance_group(
         field_size_max_multiplier=field_size_max_multiplier,
     )
 
-    evaluation_entries = group.evaluation_entries
-    evaluation_team_ratings = [
-        get_team_rating(
-            athletes=athletes,
-            entry=entry,
-            length_class=length_class,
-            tipo=tipo,
-            boat=boat,
+    if evaluate_predictions:
+        result.evaluation, result.grouped_evaluation = evaluate_performance_group(
+            athletes,
+            group if evaluation_group is None else evaluation_group,
+            context_mode=context_mode,
+            inactivity_mode=inactivity_mode,
+            inactivity_grace_days=inactivity_grace_days,
+            evidence_half_life_days=evidence_half_life_days,
         )
-        for entry in evaluation_entries
-    ]
-    result.evaluation = calculate_pairwise_evaluation(
-        evaluation_entries, evaluation_team_ratings
-    )
 
     # Calculate all appearance-level updates
     # before mutating any state.
@@ -799,6 +1278,9 @@ def process_performance_group(
                 length_class=(length_class),
                 tipo=tipo,
                 boat=boat,
+                context_mode=context_mode,
+                team_update_mode=team_update_mode,
+                uncertainty_k_max_multiplier=uncertainty_k_max_multiplier,
             )
 
             pending_lists.setdefault(athlete.athlete_id, []).append(pending)
@@ -811,7 +1293,12 @@ def process_performance_group(
     # Apply only after every update has
     # been computed from frozen state.
     for athlete_id, pending in pending_updates.items():
-        apply_pending_update(athlete=athletes[athlete_id], update=pending, group=group)
+        apply_pending_update(
+            athlete=athletes[athlete_id],
+            update=pending,
+            group=group,
+            primary_switch_delta=primary_switch_delta,
+        )
 
     result.processed = True
     result.team_ratings = team_ratings
@@ -834,14 +1321,44 @@ def run_rating_system(
     field_size_alpha=FIELD_SIZE_ALPHA,
     field_size_min_multiplier=FIELD_SIZE_MIN_MULTIPLIER,
     field_size_max_multiplier=FIELD_SIZE_MAX_MULTIPLIER,
+    context_mode="modifiers",
+    team_update_mode="inverse_sqrt",
+    inactivity_mode=INACTIVITY_MODE,
+    inactivity_grace_days=INACTIVITY_GRACE_DAYS,
+    evidence_half_life_days=EVIDENCE_HALF_LIFE_DAYS,
+    uncertainty_k_max_multiplier=UNCERTAINTY_K_MAX_MULTIPLIER,
+    primary_switch_delta=PRIMARY_SWITCH_DELTA,
     collect_group_results=False,
+    evaluation_groups=None,
 ):
     athletes = {}
     stats = Counter()
-    evaluation = Counter()
+    evaluations = {
+        "ungrouped": Counter(),
+        "grouped": Counter(),
+    }
     group_results = [] if collect_group_results else None
+    evaluation_lookup = (
+        build_evaluation_group_lookup(evaluation_groups)
+        if evaluation_groups is not None
+        else None
+    )
+    evaluated_group_ids = set()
 
     for group in groups:
+        evaluation_group = None
+        evaluate_predictions = True
+        if evaluation_lookup is not None:
+            source_key = (
+                group.source_regatta_index,
+                group.first_source_prueba_index,
+            )
+            evaluation_group = evaluation_lookup[source_key]
+            evaluation_id = id(evaluation_group)
+            evaluate_predictions = evaluation_id not in evaluated_group_ids
+            if evaluate_predictions:
+                evaluated_group_ids.add(evaluation_id)
+
         result = process_performance_group(
             athletes=athletes,
             group=group,
@@ -850,6 +1367,15 @@ def run_rating_system(
             field_size_alpha=field_size_alpha,
             field_size_min_multiplier=field_size_min_multiplier,
             field_size_max_multiplier=field_size_max_multiplier,
+            context_mode=context_mode,
+            team_update_mode=team_update_mode,
+            inactivity_mode=inactivity_mode,
+            inactivity_grace_days=inactivity_grace_days,
+            evidence_half_life_days=evidence_half_life_days,
+            uncertainty_k_max_multiplier=uncertainty_k_max_multiplier,
+            primary_switch_delta=primary_switch_delta,
+            evaluation_group=evaluation_group,
+            evaluate_predictions=evaluate_predictions,
         )
 
         if collect_group_results:
@@ -868,11 +1394,13 @@ def run_rating_system(
         ]
 
         for key, value in result.evaluation.items():
-            evaluation[key] += value
+            evaluations["ungrouped"][key] += value
+        for key, value in result.grouped_evaluation.items():
+            evaluations["grouped"][key] += value
 
     stats["athletes_created"] = len(athletes)
 
-    return (athletes, stats, evaluation, group_results)
+    return (athletes, stats, evaluations, group_results)
 
 
 # ============================================================
@@ -885,14 +1413,29 @@ def athlete_debug_dict(athlete):
         "athlete_id": (athlete.athlete_id),
         "primary_tipo": (athlete.primary_tipo),
         "primary_boat": (athlete.primary_boat),
+        "last_seen": athlete.last_seen,
         "length_ratings": {
             length_class: {
                 "elo": rating.elo,
                 "n_direct": (rating.n_direct),
                 "n_effective": (rating.n_effective),
                 "last_direct_race": (rating.last_direct_race),
+                "last_evidence_date": rating.last_evidence_date,
             }
             for length_class, rating in athlete.length_ratings.items()
+        },
+        "context_length_ratings": {
+            f"{tipo}|{boat}": {
+                length_class: {
+                    "elo": rating.elo,
+                    "n_direct": rating.n_direct,
+                    "n_effective": rating.n_effective,
+                    "last_direct_race": rating.last_direct_race,
+                    "last_evidence_date": rating.last_evidence_date,
+                }
+                for length_class, rating in ratings.items()
+            }
+            for (tipo, boat), ratings in athlete.context_length_ratings.items()
         },
         "tipo_modifiers": {
             tipo: {
@@ -914,4 +1457,6 @@ def athlete_debug_dict(athlete):
         },
         "tipo_race_counts": dict(athlete.tipo_race_counts),
         "boat_race_counts": dict(athlete.boat_race_counts),
+        "tipo_effective_counts": dict(athlete.tipo_effective_counts),
+        "boat_effective_counts": dict(athlete.boat_effective_counts),
     }

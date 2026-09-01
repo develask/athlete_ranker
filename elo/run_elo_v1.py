@@ -3,30 +3,63 @@ import csv
 import json
 import math
 import os
+import random
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from itertools import product
 from pathlib import Path
 from time import perf_counter
 
 import rating_engine
 from performance_groups import prepare_performance_groups
 from rating_engine import (
+    CONTEXT_MODES,
     FIELD_SIZE_ALPHA,
     FIELD_SIZE_MAX_MULTIPLIER,
     FIELD_SIZE_MIN_MULTIPLIER,
     FIELD_SIZE_REFERENCE,
+    EVIDENCE_HALF_LIFE_DAYS,
+    INACTIVITY_GRACE_DAYS,
+    INACTIVITY_MODE,
+    INACTIVITY_MODES,
     K_FACTOR,
     LENGTH_CLASSES,
     LENGTH_TRANSFER,
     MODIFIER_LAMBDA,
     PRIMARY_LAMBDA,
+    PRIMARY_SWITCH_DELTA,
+    TEAM_UPDATE_MODES,
+    UNCERTAINTY_K_MAX_MULTIPLIER,
     athlete_debug_dict,
+    build_evaluation_group_lookup,
     process_performance_group,
     run_rating_system,
 )
 
-STRONG_LENGTH_TRANSFER = {
+NO_LENGTH_TRANSFER = {
+    "super_sprint": {
+        "super_sprint": 1.00,
+        "sprint": 0,
+        "fondo": 0.00,
+        "maraton": 0.00,
+    },
+    "sprint": {"super_sprint": 0, "sprint": 1.00, "fondo": 0, "maraton": 0.00},
+    "fondo": {"super_sprint": 0.00, "sprint": 0, "fondo": 1.00, "maraton": 0},
+    "maraton": {"super_sprint": 0.00, "sprint": 0.00, "fondo": 0, "maraton": 1.00},
+}
+
+ALL_LENGTH_TRANSFER = {
+    "super_sprint": {
+        "super_sprint": 1.00,
+        "sprint": 1.00,
+        "fondo": 1.00,
+        "maraton": 1.00,
+    },
+    "sprint": {"super_sprint": 1.00, "sprint": 1.00, "fondo": 1.00, "maraton": 1.00},
+    "fondo": {"super_sprint": 1.00, "sprint": 1.00, "fondo": 1.00, "maraton": 1.00},
+    "maraton": {"super_sprint": 1.00, "sprint": 1.00, "fondo": 1.00, "maraton": 1.00},
+}
+
+LENGTH_TRANSFER_1 = {
     "super_sprint": {
         "super_sprint": 1.00,
         "sprint": 0.35,
@@ -38,7 +71,7 @@ STRONG_LENGTH_TRANSFER = {
     "maraton": {"super_sprint": 0.00, "sprint": 0.00, "fondo": 0.35, "maraton": 1.00},
 }
 
-STRONG_LENGTH_TRANSFER_2 = {
+LENGTH_TRANSFER_2 = {
     "super_sprint": {
         "super_sprint": 1.00,
         "sprint": 0.5,
@@ -50,7 +83,7 @@ STRONG_LENGTH_TRANSFER_2 = {
     "maraton": {"super_sprint": 0.00, "sprint": 0.05, "fondo": 0.5, "maraton": 1.00},
 }
 
-STRONG_LENGTH_TRANSFER_3 = {
+LENGTH_TRANSFER_3 = {
     "super_sprint": {
         "super_sprint": 1.00,
         "sprint": 0.75,
@@ -62,23 +95,64 @@ STRONG_LENGTH_TRANSFER_3 = {
     "maraton": {"super_sprint": 0.1, "sprint": 0.25, "fondo": 0.75, "maraton": 1.00},
 }
 
+LENGTH_TRANSFER_4 = {
+    "super_sprint": {
+        "super_sprint": 1.00,
+        "sprint": 0.75,
+        "fondo": 0.5,
+        "maraton": 0.25,
+    },
+    "sprint": {"super_sprint": 0.75, "sprint": 1.00, "fondo": 0.75, "maraton": 0.5},
+    "fondo": {"super_sprint": 0.5, "sprint": 0.75, "fondo": 1.00, "maraton": 0.75},
+    "maraton": {"super_sprint": 0.25, "sprint": 0.5, "fondo": 0.75, "maraton": 1.00},
+}
+
+LENGTH_TRANSFER_5 = {
+    "super_sprint": {
+        "super_sprint": 1.00,
+        "sprint": 0.85,
+        "fondo": 0.4,
+        "maraton": 0.2,
+    },
+    "sprint": {"super_sprint": 0.85, "sprint": 1.00, "fondo": 0.7, "maraton": 0.3},
+    "fondo": {"super_sprint": 0.4, "sprint": 0.7, "fondo": 1.00, "maraton": 0.85},
+    "maraton": {"super_sprint": 0.2, "sprint": 0.4, "fondo": 0.85, "maraton": 1.00},
+}
+
 HYPERPARAM_GRID = {
-    "k_factor": (400.0, 500.0, 600.0, 700.0),
-    "field_size_alpha": (0.0, 0.10, 0.20, 0.25, 0.33, 0.50),
-    "primary_lambda": (15.0, 20.0),
-    "modifier_lambda": (5.0, 10.0),
-    "field_size_reference": (10.0, 20.0, 40.0),
-    "field_size_min_multiplier": (0.50, 0.70, 0.85),
-    "field_size_max_multiplier": (1.40, 1.75, 2.25),
+    "group_pruebas": (True, False),
+    "context_mode": ("modifiers", "ignore", "independent"),
+    "team_update_mode": ("inverse_sqrt", "none"),
+    "inactivity_mode": ("none", "evidence_decay"),
+    "inactivity_grace_days": (180.0, 365.0),
+    "evidence_half_life_days": (180.0, 365.0),
+    "uncertainty_k_max_multiplier": (1.0, 2.0, 3.0, 4.0),
+    "primary_switch_delta": (
+        5,
+        10,
+        20,
+        999_999_999,
+    ),  # 999_999_999 is a placeholder for no switch
+    "k_factor": (100.0, 200.0, 300.0, 400.0, 500.0, 600.0, 750.0, 1000.0),
+    "field_size_alpha": (0.0, 0.1, 0.25, 0.5, 0.75, 1.0),
+    "field_size_reference": (5, 10, 20, 30, 50, 75, 100),
+    "field_size_min_multiplier": (0.25, 0.33, 0.50, 0.75),
+    "field_size_max_multiplier": (1.5, 2.0, 3.0, 4.0),
+    "primary_lambda": (10.0, 15.0, 20.0),  # (15.0, 20.0),
+    "modifier_lambda": (5.0, 10.0),  # (5.0, 10.0),
     "length_transfer": (
-        # LENGTH_TRANSFER,
-        # STRONG_LENGTH_TRANSFER,
-        STRONG_LENGTH_TRANSFER_2,
-        STRONG_LENGTH_TRANSFER_3,
+        NO_LENGTH_TRANSFER,
+        ALL_LENGTH_TRANSFER,
+        LENGTH_TRANSFER_1,
+        LENGTH_TRANSFER_2,
+        LENGTH_TRANSFER_3,
+        LENGTH_TRANSFER_4,
+        LENGTH_TRANSFER_5,
     ),
 }
 
 _SEARCH_GROUPS = None
+HYPERPARAM_RANDOM_SEED = 42
 
 
 def safe_mean(values):
@@ -164,7 +238,7 @@ def write_final_json(athletes, path):
 
 
 def write_final_csv(athletes, path):
-    fieldnames = ["athlete_id", "primary_tipo", "primary_boat"]
+    fieldnames = ["athlete_id", "primary_tipo", "primary_boat", "last_seen"]
 
     for length_class in LENGTH_CLASSES:
         fieldnames.extend(
@@ -179,8 +253,11 @@ def write_final_csv(athletes, path):
         [
             "tipo_modifiers_json",
             "boat_modifiers_json",
+            "context_length_ratings_json",
             "tipo_race_counts_json",
             "boat_race_counts_json",
+            "tipo_effective_counts_json",
+            "boat_effective_counts_json",
         ]
     )
 
@@ -193,6 +270,7 @@ def write_final_csv(athletes, path):
                 "athlete_id": athlete_id,
                 "primary_tipo": (athlete.primary_tipo),
                 "primary_boat": (athlete.primary_boat),
+                "last_seen": athlete.last_seen,
             }
 
             for length_class in LENGTH_CLASSES:
@@ -228,6 +306,22 @@ def write_final_csv(athletes, path):
                 sort_keys=True,
             )
 
+            row["context_length_ratings_json"] = json.dumps(
+                {
+                    f"{tipo}|{boat}": {
+                        length: {
+                            "elo": rating.elo,
+                            "n_direct": rating.n_direct,
+                            "n_effective": rating.n_effective,
+                        }
+                        for length, rating in ratings.items()
+                    }
+                    for (tipo, boat), ratings in athlete.context_length_ratings.items()
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+
             row["tipo_race_counts_json"] = json.dumps(
                 dict(athlete.tipo_race_counts), ensure_ascii=False, sort_keys=True
             )
@@ -236,10 +330,22 @@ def write_final_csv(athletes, path):
                 dict(athlete.boat_race_counts), ensure_ascii=False, sort_keys=True
             )
 
+            row["tipo_effective_counts_json"] = json.dumps(
+                dict(athlete.tipo_effective_counts),
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+
+            row["boat_effective_counts_json"] = json.dumps(
+                dict(athlete.boat_effective_counts),
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+
             writer.writerow(row)
 
 
-def build_rating_distributions(athletes):
+def build_rating_distributions(athletes, context_mode="modifiers"):
     output = {}
 
     for length_class in LENGTH_CLASSES:
@@ -247,11 +353,18 @@ def build_rating_distributions(athletes):
         direct_values = []
 
         for athlete in athletes.values():
-            rating = athlete.length_ratings[length_class]
-            all_values.append(rating.elo)
+            if context_mode == "independent":
+                ratings = (
+                    context_ratings[length_class]
+                    for context_ratings in athlete.context_length_ratings.values()
+                )
+            else:
+                ratings = (athlete.length_ratings[length_class],)
 
-            if rating.n_direct > 0:
-                direct_values.append(rating.elo)
+            for rating in ratings:
+                all_values.append(rating.elo)
+                if rating.n_direct > 0:
+                    direct_values.append(rating.elo)
 
         output[length_class] = {
             "all_athletes": (distribution(all_values)),
@@ -343,6 +456,60 @@ def main():
         default=1,
         help="Parallel hyperparameter workers; -1 uses every CPU (default: 1)",
     )
+    parser.add_argument(
+        "--n-experiments",
+        type=int,
+        default=1000,
+        help="Random hyperparameter configurations to evaluate (default: 1000)",
+    )
+    parser.add_argument(
+        "--group-pruebas",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Merge compatible pruebas for updates",
+    )
+    parser.add_argument(
+        "--context-mode",
+        choices=CONTEXT_MODES,
+        default="modifiers",
+        help="How tipo/boat contexts are represented (default: modifiers)",
+    )
+    parser.add_argument(
+        "--team-update-mode",
+        choices=TEAM_UPDATE_MODES,
+        default="inverse_sqrt",
+        help="Per-athlete team delta scaling (default: inverse_sqrt)",
+    )
+    parser.add_argument(
+        "--inactivity-mode",
+        choices=INACTIVITY_MODES,
+        default=INACTIVITY_MODE,
+        help=f"How inactivity affects evidence and updates (default: {INACTIVITY_MODE})",
+    )
+    parser.add_argument(
+        "--inactivity-grace-days",
+        type=float,
+        default=INACTIVITY_GRACE_DAYS,
+        help=f"Days before inactivity takes effect (default: {INACTIVITY_GRACE_DAYS:g})",
+    )
+    parser.add_argument(
+        "--evidence-half-life-days",
+        type=float,
+        default=EVIDENCE_HALF_LIFE_DAYS,
+        help=f"Inactive evidence half-life (default: {EVIDENCE_HALF_LIFE_DAYS:g})",
+    )
+    parser.add_argument(
+        "--uncertainty-k-max-multiplier",
+        type=float,
+        default=UNCERTAINTY_K_MAX_MULTIPLIER,
+        help=f"Maximum uncertainty-based update multiplier (default: {UNCERTAINTY_K_MAX_MULTIPLIER:g})",
+    )
+    parser.add_argument(
+        "--primary-switch-delta",
+        type=int,
+        default=PRIMARY_SWITCH_DELTA,
+        help=f"Usage lead required to change a primary context (default: {PRIMARY_SWITCH_DELTA})",
+    )
 
     args = parser.parse_args()
 
@@ -355,12 +522,24 @@ def main():
     with dataset_path.open("r", encoding="utf-8") as f:
         raw_data = json.load(f)
 
-    print("Building performance groups...")
-
-    groups, prep_stats = prepare_performance_groups(raw_data, keep_unusable=True)
-
     if args.hyperparam_search:
-        results = hyperparam_search(groups, n_jobs=args.n_jobs)
+        group_sets = {}
+        grouping_modes = set(HYPERPARAM_GRID["group_pruebas"])
+        grouping_modes.add(True)  # Canonical groups used by every evaluation.
+        for group_pruebas in sorted(grouping_modes, reverse=True):
+            if group_pruebas in group_sets:
+                continue
+            print(f"Building performance groups (group_pruebas={group_pruebas})...")
+            group_sets[group_pruebas], _ = prepare_performance_groups(
+                raw_data,
+                keep_unusable=True,
+                group_pruebas=group_pruebas,
+            )
+        results = hyperparam_search(
+            group_sets,
+            n_jobs=args.n_jobs,
+            n_experiments=args.n_experiments,
+        )
         json_path = output_dir / "hyperparam_search.json"
         csv_path = output_dir / "hyperparam_search.csv"
 
@@ -370,6 +549,14 @@ def main():
         csv_fields = [
             "rank",
             "k_mode",
+            "group_pruebas",
+            "context_mode",
+            "team_update_mode",
+            "inactivity_mode",
+            "inactivity_grace_days",
+            "evidence_half_life_days",
+            "uncertainty_k_max_multiplier",
+            "primary_switch_delta",
             "k_factor",
             "field_size_reference",
             "field_size_alpha",
@@ -383,6 +570,12 @@ def main():
             "brier_score",
             "log_loss",
             "decisive_accuracy",
+            "grouped_units_evaluated",
+            "grouped_pairwise_comparisons",
+            "grouped_pairwise_decisive",
+            "grouped_brier_score",
+            "grouped_log_loss",
+            "grouped_decisive_accuracy",
             "elapsed_seconds",
         ]
         with csv_path.open("w", newline="", encoding="utf-8") as f:
@@ -395,10 +588,34 @@ def main():
         print("\nHyperparameter search outputs:", output_dir.resolve())
         return
 
+    print(f"Building performance groups (group_pruebas={args.group_pruebas})...")
+    groups, prep_stats = prepare_performance_groups(
+        raw_data,
+        keep_unusable=True,
+        group_pruebas=args.group_pruebas,
+    )
+    if args.group_pruebas:
+        evaluation_groups = groups
+    else:
+        print("Building canonical groups for evaluation...")
+        evaluation_groups, _ = prepare_performance_groups(
+            raw_data,
+            keep_unusable=True,
+            group_pruebas=True,
+        )
+    evaluation_lookup = build_evaluation_group_lookup(evaluation_groups)
+    evaluated_group_ids = set()
+
     athletes = {}
     rating_stats = Counter()
-    evaluation = Counter()
-    evaluation_by_year = {}
+    evaluations = {
+        "ungrouped": Counter(),
+        "grouped": Counter(),
+    }
+    evaluations_by_year = {
+        "ungrouped": {},
+        "grouped": {},
+    }
     rating_distributions_by_year = {}
     current_year = None
 
@@ -443,9 +660,19 @@ def main():
                 current_year = group_year
             elif group_year != current_year:
                 rating_distributions_by_year[current_year] = build_rating_distributions(
-                    athletes
+                    athletes, context_mode=args.context_mode
                 )
                 current_year = group_year
+
+            source_key = (
+                group.source_regatta_index,
+                group.first_source_prueba_index,
+            )
+            evaluation_group = evaluation_lookup[source_key]
+            evaluation_id = id(evaluation_group)
+            evaluate_predictions = evaluation_id not in evaluated_group_ids
+            if evaluate_predictions:
+                evaluated_group_ids.add(evaluation_id)
 
             result = process_performance_group(
                 athletes=athletes,
@@ -455,6 +682,15 @@ def main():
                 field_size_alpha=args.field_size_alpha,
                 field_size_min_multiplier=args.field_size_min_multiplier,
                 field_size_max_multiplier=args.field_size_max_multiplier,
+                context_mode=args.context_mode,
+                team_update_mode=args.team_update_mode,
+                inactivity_mode=args.inactivity_mode,
+                inactivity_grace_days=args.inactivity_grace_days,
+                evidence_half_life_days=args.evidence_half_life_days,
+                uncertainty_k_max_multiplier=args.uncertainty_k_max_multiplier,
+                primary_switch_delta=args.primary_switch_delta,
+                evaluation_group=evaluation_group,
+                evaluate_predictions=evaluate_predictions,
             )
 
             if result.processed:
@@ -466,13 +702,20 @@ def main():
                 ]
 
                 for key, value in result.evaluation.items():
-                    evaluation[key] += value
+                    evaluations["ungrouped"][key] += value
+                for key, value in result.grouped_evaluation.items():
+                    evaluations["grouped"][key] += value
 
                 if result.evaluation["pairwise_comparisons"]:
-                    yearly_evaluation = evaluation_by_year.setdefault(
+                    yearly_evaluation = evaluations_by_year["ungrouped"].setdefault(
                         group_year, Counter()
                     )
                     yearly_evaluation.update(result.evaluation)
+                if result.grouped_evaluation["pairwise_comparisons"]:
+                    yearly_evaluation = evaluations_by_year["grouped"].setdefault(
+                        group_year, Counter()
+                    )
+                    yearly_evaluation.update(result.grouped_evaluation)
             else:
                 rating_stats["groups_skipped"] += 1
                 rating_stats["skip_" + str(result.skip_reason)] += 1
@@ -530,7 +773,7 @@ def main():
 
     if current_year is not None:
         rating_distributions_by_year[current_year] = build_rating_distributions(
-            athletes
+            athletes, context_mode=args.context_mode
         )
 
     rating_stats["athletes_created"] = len(athletes)
@@ -547,6 +790,14 @@ def main():
         "version": "elo_v1",
         "parameters": {
             "k_mode": "field_size_scaled",
+            "group_pruebas": args.group_pruebas,
+            "context_mode": args.context_mode,
+            "team_update_mode": args.team_update_mode,
+            "inactivity_mode": args.inactivity_mode,
+            "inactivity_grace_days": args.inactivity_grace_days,
+            "evidence_half_life_days": args.evidence_half_life_days,
+            "uncertainty_k_max_multiplier": args.uncertainty_k_max_multiplier,
+            "primary_switch_delta": args.primary_switch_delta,
             "k_factor": args.k,
             "field_size_reference": args.field_size_reference,
             "field_size_alpha": args.field_size_alpha,
@@ -558,12 +809,19 @@ def main():
         },
         "preprocessing": (serialize_counter(prep_stats)),
         "rating_run": (serialize_counter(rating_stats)),
-        "prediction_evaluation": (evaluation_summary(evaluation)),
-        "prediction_evaluation_by_year": {
-            year: evaluation_summary(yearly_metrics)
-            for year, yearly_metrics in sorted(evaluation_by_year.items())
+        "prediction_evaluation": {
+            scope: evaluation_summary(metrics) for scope, metrics in evaluations.items()
         },
-        "rating_distributions": (build_rating_distributions(athletes)),
+        "prediction_evaluation_by_year": {
+            scope: {
+                year: evaluation_summary(yearly_metrics)
+                for year, yearly_metrics in sorted(yearly_values.items())
+            }
+            for scope, yearly_values in evaluations_by_year.items()
+        },
+        "rating_distributions": build_rating_distributions(
+            athletes, context_mode=args.context_mode
+        ),
         "rating_distributions_by_year": {
             year: values
             for year, values in sorted(rating_distributions_by_year.items())
@@ -581,36 +839,41 @@ def main():
     print("Groups processed:", rating_stats["groups_processed"])
     print("Groups skipped:", rating_stats["groups_skipped"])
 
-    evaluation_report = summary["prediction_evaluation"]
-
     def metric_text(value):
         return f"{value:.6f}" if value is not None else "n/a"
 
     def elo_text(value):
         return f"{value:.1f}" if value is not None else "n/a"
 
-    print("\nPrediction evaluation by year:")
-    print(
-        f"{'Year':<8} {'Pruebas':>8} "
-        f"{'Pairs':>12} {'Decisive':>12} "
-        f"{'Brier':>10} {'Log loss':>10} "
-        f"{'Accuracy':>10}"
-    )
-    for year, report in summary["prediction_evaluation_by_year"].items():
+    for scope, yearly_reports in summary["prediction_evaluation_by_year"].items():
+        unit_label = "Groups" if scope == "grouped" else "Pruebas"
+        print(f"\nPrediction evaluation by year ({scope}):")
         print(
-            f"{year:<8} "
-            f"{report['pruebas_evaluated']:>8} "
-            f"{report['pairwise_comparisons']:>12} "
-            f"{report['pairwise_decisive']:>12} "
-            f"{metric_text(report['brier_score']):>10} "
-            f"{metric_text(report['log_loss']):>10} "
-            f"{metric_text(report['decisive_accuracy']):>10}"
+            f"{'Year':<8} {unit_label:>8} "
+            f"{'Pairs':>12} {'Decisive':>12} "
+            f"{'Brier':>10} {'Log loss':>10} "
+            f"{'Accuracy':>10}"
         )
+        for year, report in yearly_reports.items():
+            print(
+                f"{year:<8} "
+                f"{report['pruebas_evaluated']:>8} "
+                f"{report['pairwise_comparisons']:>12} "
+                f"{report['pairwise_decisive']:>12} "
+                f"{metric_text(report['brier_score']):>10} "
+                f"{metric_text(report['log_loss']):>10} "
+                f"{metric_text(report['decisive_accuracy']):>10}"
+            )
 
     print("\nOverall prediction evaluation:")
-    print("Pairwise Brier:", metric_text(evaluation_report["brier_score"]))
-    print("Pairwise log loss:", metric_text(evaluation_report["log_loss"]))
-    print("Decisive accuracy:", metric_text(evaluation_report["decisive_accuracy"]))
+    for scope, evaluation_report in summary["prediction_evaluation"].items():
+        print(f"  {scope}:")
+        print("    Pairwise Brier:", metric_text(evaluation_report["brier_score"]))
+        print("    Pairwise log loss:", metric_text(evaluation_report["log_loss"]))
+        print(
+            "    Decisive accuracy:",
+            metric_text(evaluation_report["decisive_accuracy"]),
+        )
 
     print("\nEnd-of-year Elo distributions (direct participants):")
     print(
@@ -660,15 +923,25 @@ def _evaluate_hyperparam_candidate(candidate):
         rating_engine.CONFIDENCE_TRANSFER = candidate["length_transfer"]
 
         started = perf_counter()
-        _, _, evaluation, _ = run_rating_system(
-            _SEARCH_GROUPS,
+        groups = _SEARCH_GROUPS[candidate["group_pruebas"]]
+        _, _, evaluations, _ = run_rating_system(
+            groups,
             k=candidate["k_factor"],
             field_size_reference=candidate["field_size_reference"],
             field_size_alpha=candidate["field_size_alpha"],
             field_size_min_multiplier=candidate["field_size_min_multiplier"],
             field_size_max_multiplier=candidate["field_size_max_multiplier"],
+            context_mode=candidate["context_mode"],
+            team_update_mode=candidate["team_update_mode"],
+            inactivity_mode=candidate["inactivity_mode"],
+            inactivity_grace_days=candidate["inactivity_grace_days"],
+            evidence_half_life_days=candidate["evidence_half_life_days"],
+            uncertainty_k_max_multiplier=candidate["uncertainty_k_max_multiplier"],
+            primary_switch_delta=candidate["primary_switch_delta"],
+            evaluation_groups=_SEARCH_GROUPS[True],
         )
-        report = evaluation_summary(evaluation)
+        ungrouped_report = evaluation_summary(evaluations["ungrouped"])
+        grouped_report = evaluation_summary(evaluations["grouped"])
         elapsed = perf_counter() - started
     finally:
         rating_engine.PRIMARY_LAMBDA = original_parameters["primary_lambda"]
@@ -679,12 +952,20 @@ def _evaluate_hyperparam_candidate(candidate):
     return {
         "rank": None,
         **candidate,
-        "pruebas_evaluated": report["pruebas_evaluated"],
-        "pairwise_comparisons": report["pairwise_comparisons"],
-        "pairwise_decisive": report["pairwise_decisive"],
-        "brier_score": report["brier_score"],
-        "log_loss": report["log_loss"],
-        "decisive_accuracy": report["decisive_accuracy"],
+        # Keep the established names for strict prueba-level metrics so old
+        # analysis scripts continue to work and ranking remains comparable.
+        "pruebas_evaluated": ungrouped_report["pruebas_evaluated"],
+        "pairwise_comparisons": ungrouped_report["pairwise_comparisons"],
+        "pairwise_decisive": ungrouped_report["pairwise_decisive"],
+        "brier_score": ungrouped_report["brier_score"],
+        "log_loss": ungrouped_report["log_loss"],
+        "decisive_accuracy": ungrouped_report["decisive_accuracy"],
+        "grouped_units_evaluated": grouped_report["pruebas_evaluated"],
+        "grouped_pairwise_comparisons": grouped_report["pairwise_comparisons"],
+        "grouped_pairwise_decisive": grouped_report["pairwise_decisive"],
+        "grouped_brier_score": grouped_report["brier_score"],
+        "grouped_log_loss": grouped_report["log_loss"],
+        "grouped_decisive_accuracy": grouped_report["decisive_accuracy"],
         "elapsed_seconds": elapsed,
     }
 
@@ -692,6 +973,12 @@ def _evaluate_hyperparam_candidate(candidate):
 def _print_search_result(completed, total, result):
     print(
         f"  [{completed}/{total}] "
+        f"group={result['group_pruebas']}, "
+        f"context={result['context_mode']}, "
+        f"team={result['team_update_mode']}, "
+        f"inactivity={result['inactivity_mode']}, "
+        f"uncertainty_k={result['uncertainty_k_max_multiplier']:g}, "
+        f"primary_delta={result['primary_switch_delta']}, "
         f"k={result['k_factor']:g}, "
         f"alpha={result['field_size_alpha']:g}, "
         f"field=({result['field_size_reference']:g}, "
@@ -700,24 +987,46 @@ def _print_search_result(completed, total, result):
         f"primary_lambda={result['primary_lambda']:g}, "
         f"modifier_lambda={result['modifier_lambda']:g}, "
         f"transfer={result['length_transfer_index']} -> "
-        f"log_loss={result['log_loss']:.6f}, "
+        f"ungrouped=(log_loss={result['log_loss']:.6f}, "
         f"brier={result['brier_score']:.6f}, "
-        f"accuracy={result['decisive_accuracy']:.6f}, "
+        f"accuracy={result['decisive_accuracy']:.6f}), "
+        f"grouped=(log_loss={result['grouped_log_loss']:.6f}, "
+        f"brier={result['grouped_brier_score']:.6f}, "
+        f"accuracy={result['grouped_decisive_accuracy']:.6f}), "
         f"pruebas={result['pruebas_evaluated']}, "
         f"{result['elapsed_seconds']:.1f}s"
     )
 
 
-def hyperparam_search(groups, param_grid=None, n_jobs=1):
+def _grid_values_at_index(values, flat_index):
+    """Decode one Cartesian-product index without materializing the product."""
+    selected = [None] * len(values)
+    for position in range(len(values) - 1, -1, -1):
+        flat_index, value_index = divmod(flat_index, len(values[position]))
+        selected[position] = (value_index, values[position][value_index])
+    return selected
+
+
+def hyperparam_search(groups, param_grid=None, n_jobs=1, n_experiments=1000):
     """
-    Exhaustively evaluate Elo hyperparameters over the full chronology.
+    Evaluate a reproducible random sample of the hyperparameter grid.
 
     Every candidate starts with fresh athlete state. Ranking uses strict
-    prueba-level log loss, then Brier score, then decisive accuracy. The
-    module-level rating parameters are restored even if a run fails.
+    prueba-level log loss, then Brier score, then decisive accuracy. Grouped
+    metrics are reported alongside them but do not change the ranking. The
+    module-level rating parameters are restored even if a run fails. If
+    ``n_experiments`` is larger than the grid, every combination is evaluated.
     """
     grid = HYPERPARAM_GRID if param_grid is None else param_grid
     required = (
+        "group_pruebas",
+        "context_mode",
+        "team_update_mode",
+        "inactivity_mode",
+        "inactivity_grace_days",
+        "evidence_half_life_days",
+        "uncertainty_k_max_multiplier",
+        "primary_switch_delta",
         "k_factor",
         "field_size_alpha",
         "primary_lambda",
@@ -734,19 +1043,55 @@ def hyperparam_search(groups, param_grid=None, n_jobs=1):
     values = [tuple(grid[name]) for name in required]
     if any(not candidates for candidates in values):
         raise ValueError("Every hyperparameter must have at least one candidate")
+    if n_experiments < 1:
+        raise ValueError("n_experiments must be a positive integer")
 
-    transfer_candidates = values[-1]
+    total_combinations = math.prod(len(candidates) for candidates in values)
+    experiment_count = min(n_experiments, total_combinations)
+    sampled_indices = random.Random(HYPERPARAM_RANDOM_SEED).sample(
+        range(total_combinations), experiment_count
+    )
+
     candidates = []
-    for (
-        k_factor,
-        field_size_alpha,
-        primary_lambda,
-        modifier_lambda,
-        field_size_reference,
-        field_size_min_multiplier,
-        field_size_max_multiplier,
-        length_transfer,
-    ) in product(*values):
+    for flat_index in sampled_indices:
+        selected = _grid_values_at_index(values, flat_index)
+        selected_indices = [value_index for value_index, _ in selected]
+        (
+            group_pruebas,
+            context_mode,
+            team_update_mode,
+            inactivity_mode,
+            inactivity_grace_days,
+            evidence_half_life_days,
+            uncertainty_k_max_multiplier,
+            primary_switch_delta,
+            k_factor,
+            field_size_alpha,
+            primary_lambda,
+            modifier_lambda,
+            field_size_reference,
+            field_size_min_multiplier,
+            field_size_max_multiplier,
+            length_transfer,
+        ) = [value for _, value in selected]
+        if context_mode not in CONTEXT_MODES:
+            raise ValueError(f"Unsupported context_mode candidate: {context_mode}")
+        if team_update_mode not in TEAM_UPDATE_MODES:
+            raise ValueError(
+                f"Unsupported team_update_mode candidate: {team_update_mode}"
+            )
+        if inactivity_mode not in INACTIVITY_MODES:
+            raise ValueError(
+                f"Unsupported inactivity_mode candidate: {inactivity_mode}"
+            )
+        if inactivity_grace_days < 0:
+            raise ValueError("Inactivity grace candidates must be non-negative")
+        if evidence_half_life_days <= 0:
+            raise ValueError("Evidence half-life candidates must be positive")
+        if uncertainty_k_max_multiplier < 1:
+            raise ValueError("Uncertainty K multiplier candidates must be at least 1")
+        if primary_switch_delta < 0:
+            raise ValueError("Primary switch delta candidates must be non-negative")
         if min(primary_lambda, modifier_lambda) <= 0:
             raise ValueError("All lambda candidates must be positive")
         if field_size_reference <= 0:
@@ -759,6 +1104,14 @@ def hyperparam_search(groups, param_grid=None, n_jobs=1):
         candidates.append(
             {
                 "k_mode": "field_size_scaled",
+                "group_pruebas": bool(group_pruebas),
+                "context_mode": str(context_mode),
+                "team_update_mode": str(team_update_mode),
+                "inactivity_mode": str(inactivity_mode),
+                "inactivity_grace_days": float(inactivity_grace_days),
+                "evidence_half_life_days": float(evidence_half_life_days),
+                "uncertainty_k_max_multiplier": float(uncertainty_k_max_multiplier),
+                "primary_switch_delta": int(primary_switch_delta),
                 "k_factor": float(k_factor),
                 "field_size_reference": float(field_size_reference),
                 "field_size_alpha": float(field_size_alpha),
@@ -766,7 +1119,7 @@ def hyperparam_search(groups, param_grid=None, n_jobs=1):
                 "field_size_max_multiplier": float(field_size_max_multiplier),
                 "primary_lambda": float(primary_lambda),
                 "modifier_lambda": float(modifier_lambda),
-                "length_transfer_index": transfer_candidates.index(length_transfer),
+                "length_transfer_index": selected_indices[-1],
                 "length_transfer": length_transfer,
             }
         )
@@ -778,7 +1131,8 @@ def hyperparam_search(groups, param_grid=None, n_jobs=1):
     n_jobs = min(n_jobs, len(candidates))
 
     print(
-        f"Running {len(candidates)} hyperparameter configurations "
+        f"Randomly selected {len(candidates)} of {total_combinations} "
+        f"hyperparameter configurations (seed={HYPERPARAM_RANDOM_SEED}) "
         f"with n_jobs={n_jobs}..."
     )
     results = []
@@ -815,13 +1169,22 @@ def hyperparam_search(groups, param_grid=None, n_jobs=1):
 
     print("\nHyperparameter ranking:")
     print(
-        f"{'Rank':>4} {'K':>6} {'Alpha':>6} {'Ref':>6} {'Min':>5} {'Max':>5} "
+        f"{'Rank':>4} {'Group':>5} {'Context':>11} {'Team':>12} "
+        f"{'Inactivity':>14} {'UK':>4} {'PΔ':>4} "
+        f"{'K':>6} {'Alpha':>6} {'Ref':>6} {'Min':>5} {'Max':>5} "
         f"{'Primary':>8} {'Modifier':>8} "
-        f"{'Transfer':>8} {'Log loss':>10} {'Brier':>10} {'Accuracy':>10}"
+        f"{'Transfer':>8} "
+        f"{'U LogLoss':>10} {'U Brier':>10} {'U Acc':>10} "
+        f"{'G LogLoss':>10} {'G Brier':>10} {'G Acc':>10}"
     )
     for result in results:
         print(
-            f"{result['rank']:>4} {result['k_factor']:>6.1f} "
+            f"{result['rank']:>4} {str(result['group_pruebas']):>5} "
+            f"{result['context_mode']:>11} {result['team_update_mode']:>12} "
+            f"{result['inactivity_mode']:>14} "
+            f"{result['uncertainty_k_max_multiplier']:>4.1f} "
+            f"{result['primary_switch_delta']:>4} "
+            f"{result['k_factor']:>6.1f} "
             f"{result['field_size_alpha']:>6.2f} "
             f"{result['field_size_reference']:>6.1f} "
             f"{result['field_size_min_multiplier']:>5.2f} "
@@ -830,7 +1193,10 @@ def hyperparam_search(groups, param_grid=None, n_jobs=1):
             f"{result['modifier_lambda']:>8.1f} "
             f"{result['length_transfer_index']:>8} "
             f"{result['log_loss']:>10.6f} {result['brier_score']:>10.6f} "
-            f"{result['decisive_accuracy']:>10.6f}"
+            f"{result['decisive_accuracy']:>10.6f} "
+            f"{result['grouped_log_loss']:>10.6f} "
+            f"{result['grouped_brier_score']:>10.6f} "
+            f"{result['grouped_decisive_accuracy']:>10.6f}"
         )
 
     return results
