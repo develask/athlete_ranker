@@ -30,7 +30,9 @@ from rating_engine import (
     TEAM_UPDATE_MODES,
     UNCERTAINTY_K_MAX_MULTIPLIER,
     athlete_debug_dict,
-    build_evaluation_group_lookup,
+    build_evaluation_batches,
+    calculate_evaluation_support,
+    evaluate_performance_group,
     process_performance_group,
     run_rating_system,
 )
@@ -110,13 +112,13 @@ LENGTH_TRANSFER_4 = {
 LENGTH_TRANSFER_5 = {
     "super_sprint": {
         "super_sprint": 1.00,
-        "sprint": 0.85,
-        "fondo": 0.4,
-        "maraton": 0.2,
+        "sprint": 0.9,
+        "fondo": 0.5,
+        "maraton": 0.25,
     },
-    "sprint": {"super_sprint": 0.85, "sprint": 1.00, "fondo": 0.7, "maraton": 0.3},
-    "fondo": {"super_sprint": 0.4, "sprint": 0.7, "fondo": 1.00, "maraton": 0.85},
-    "maraton": {"super_sprint": 0.2, "sprint": 0.4, "fondo": 0.85, "maraton": 1.00},
+    "sprint": {"super_sprint": 0.9, "sprint": 1.00, "fondo": 0.9, "maraton": 0.5},
+    "fondo": {"super_sprint": 0.5, "sprint": 0.9, "fondo": 1.00, "maraton": 0.9},
+    "maraton": {"super_sprint": 0.25, "sprint": 0.5, "fondo": 0.9, "maraton": 1.00},
 }
 
 HYPERPARAM_GRID = {
@@ -126,18 +128,18 @@ HYPERPARAM_GRID = {
     "inactivity_mode": ("none", "evidence_decay"),
     "inactivity_grace_days": (180.0, 365.0),
     "evidence_half_life_days": (180.0, 365.0),
-    "uncertainty_k_max_multiplier": (1.0, 2.0, 3.0, 4.0),
+    "uncertainty_k_max_multiplier": (1.0, 1.5, 2.0, 3.0, 4.0),
     "primary_switch_delta": (
         5,
         10,
         20,
         999_999_999,
     ),  # 999_999_999 is a placeholder for no switch
-    "k_factor": (100.0, 200.0, 300.0, 400.0, 500.0, 600.0, 750.0, 1000.0),
+    "k_factor": (50.0, 75.0, 100.0, 150.0, 200.0, 250.0, 300.0),
     "field_size_alpha": (0.0, 0.1, 0.25, 0.5, 0.75, 1.0),
     "field_size_reference": (5, 10, 20, 30, 50, 75, 100),
-    "field_size_min_multiplier": (0.25, 0.33, 0.50, 0.75),
-    "field_size_max_multiplier": (1.5, 2.0, 3.0, 4.0),
+    "field_size_min_multiplier": (0.50, 0.667, 0.8),
+    "field_size_max_multiplier": (1.25, 1.5, 2.0),
     "primary_lambda": (10.0, 15.0, 20.0),  # (15.0, 20.0),
     "modifier_lambda": (5.0, 10.0),  # (5.0, 10.0),
     "length_transfer": (
@@ -152,6 +154,7 @@ HYPERPARAM_GRID = {
 }
 
 _SEARCH_GROUPS = None
+_SEARCH_EXPECTED_SUPPORT = None
 HYPERPARAM_RANDOM_SEED = 42
 
 
@@ -197,24 +200,31 @@ def distribution(values):
             "count": 0,
             "min": None,
             "p05": None,
+            "p01": None,
             "p25": None,
             "median": None,
             "p75": None,
             "p95": None,
+            "p99": None,
             "max": None,
             "mean": None,
+            "std": None,
         }
 
+    mean = safe_mean(values)
     return {
         "count": len(values),
         "min": min(values),
         "p05": percentile(values, 0.05),
+        "p01": percentile(values, 0.01),
         "p25": percentile(values, 0.25),
         "median": percentile(values, 0.50),
         "p75": percentile(values, 0.75),
         "p95": percentile(values, 0.95),
+        "p99": percentile(values, 0.99),
         "max": max(values),
-        "mean": safe_mean(values),
+        "mean": mean,
+        "std": math.sqrt(safe_mean((value - mean) ** 2 for value in values)),
     }
 
 
@@ -225,6 +235,144 @@ def serialize_counter(counter):
 def year_from_fecha(fecha):
     year = str(fecha or "")[:4]
     return year if year.isdigit() else "unknown"
+
+
+class PopulationHealthTracker:
+    """Collect coordinate-consistent population and update diagnostics by year."""
+
+    def __init__(self, context_mode):
+        self.context_mode = context_mode
+        self.current_year = None
+        self.active_rating_keys = set()
+        self.new_athletes = set()
+        self.seen_athletes = set()
+        self.year_updates = []
+        self.all_updates = []
+        self.previous_snapshot = {}
+        self.by_year = {}
+
+    def before_group(self, athletes, group):
+        year = year_from_fecha(group.fecha)
+        if self.current_year is None:
+            self.current_year = year
+        elif year != self.current_year:
+            self._finish_year(athletes)
+            self.current_year = year
+
+    def after_group(self, group, result):
+        for athlete_id, update in result.athlete_updates.items():
+            if athlete_id not in self.seen_athletes:
+                self.new_athletes.add(athlete_id)
+                self.seen_athletes.add(athlete_id)
+
+            if self.context_mode == "independent":
+                key = (
+                    athlete_id,
+                    update.direct_length,
+                    update.tipo,
+                    update.boat,
+                )
+            else:
+                key = (athlete_id, update.direct_length, None, None)
+            self.active_rating_keys.add(key)
+            self.year_updates.append(update.base_delta)
+            self.all_updates.append(update.base_delta)
+
+    def finalize(self, athletes):
+        if self.current_year is not None:
+            self._finish_year(athletes)
+
+    def _rating_value(self, athletes, key):
+        athlete_id, length_class, tipo, boat = key
+        athlete = athletes[athlete_id]
+        if self.context_mode != "independent":
+            tipo = athlete.primary_tipo
+            boat = athlete.primary_boat
+        return rating_engine.get_effective_rating(
+            athlete,
+            length_class,
+            tipo,
+            boat,
+            context_mode=self.context_mode,
+        )
+
+    def _finish_year(self, athletes):
+        snapshot = {
+            key: self._rating_value(athletes, key) for key in self.active_rating_keys
+        }
+        rating_values = list(snapshot.values())
+        rating_report = distribution(rating_values)
+        cohort_deltas = [
+            rating - self.previous_snapshot[key]
+            for key, rating in snapshot.items()
+            if key in self.previous_snapshot
+        ]
+        absolute_updates = [abs(value) for value in self.year_updates]
+
+        by_length = {}
+        for length_class in LENGTH_CLASSES:
+            values = [
+                rating for key, rating in snapshot.items() if key[1] == length_class
+            ]
+            by_length[length_class] = distribution(values)
+
+        self.by_year[self.current_year] = {
+            "active_athletes": len({key[0] for key in snapshot}),
+            "active_rating_records": len(snapshot),
+            "new_athletes": len(self.new_athletes),
+            "ratings": rating_report,
+            "ratings_by_length": by_length,
+            "below_1000": sum(value < 1000 for value in rating_values),
+            "above_2000": sum(value > 2000 for value in rating_values),
+            "below_1000_percentage": (
+                sum(value < 1000 for value in rating_values) / len(rating_values)
+                if rating_values
+                else None
+            ),
+            "above_2000_percentage": (
+                sum(value > 2000 for value in rating_values) / len(rating_values)
+                if rating_values
+                else None
+            ),
+            "cohort_rating_change": distribution(cohort_deltas),
+            "updates": {
+                "net_delta": sum(self.year_updates),
+                "signed": distribution(self.year_updates),
+                "absolute": distribution(absolute_updates),
+            },
+        }
+        self.previous_snapshot = snapshot
+        self.active_rating_keys = set()
+        self.new_athletes = set()
+        self.year_updates = []
+
+    def aggregate(self):
+        years = list(self.by_year.values())
+        spreads = [
+            report["ratings"]["p95"] - report["ratings"]["p05"]
+            for report in years
+            if report["ratings"]["p95"] is not None
+        ]
+        cohort_medians = [
+            report["cohort_rating_change"]["median"]
+            for report in years
+            if report["cohort_rating_change"]["median"] is not None
+        ]
+        final_ratings = years[-1]["ratings"] if years else distribution([])
+        return {
+            "final_rating_mean": final_ratings["mean"],
+            "final_rating_median": final_ratings["median"],
+            "final_rating_std": final_ratings["std"],
+            "final_rating_p05": final_ratings["p05"],
+            "final_rating_p95": final_ratings["p95"],
+            "max_p95_p05_spread": max(spreads) if spreads else None,
+            "spread_change": spreads[-1] - spreads[0] if spreads else None,
+            "max_abs_cohort_median_drift": (
+                max(abs(value) for value in cohort_medians) if cohort_medians else None
+            ),
+            "net_delta": sum(self.all_updates),
+            "absolute_updates": distribution(abs(value) for value in self.all_updates),
+        }
 
 
 def write_final_json(athletes, path):
@@ -576,6 +724,18 @@ def main():
             "grouped_brier_score",
             "grouped_log_loss",
             "grouped_decisive_accuracy",
+            "final_rating_mean",
+            "final_rating_median",
+            "final_rating_std",
+            "final_rating_p05",
+            "final_rating_p95",
+            "max_p95_p05_spread",
+            "spread_change",
+            "max_abs_cohort_median_drift",
+            "net_delta",
+            "mean_absolute_update",
+            "p95_absolute_update",
+            "max_absolute_update",
             "elapsed_seconds",
         ]
         with csv_path.open("w", newline="", encoding="utf-8") as f:
@@ -603,10 +763,10 @@ def main():
             keep_unusable=True,
             group_pruebas=True,
         )
-    evaluation_lookup = build_evaluation_group_lookup(evaluation_groups)
-    evaluated_group_ids = set()
+    evaluation_batches = build_evaluation_batches(groups, evaluation_groups)
 
     athletes = {}
+    population_tracker = PopulationHealthTracker(args.context_mode)
     rating_stats = Counter()
     evaluations = {
         "ungrouped": Counter(),
@@ -654,8 +814,9 @@ def main():
         writer = csv.DictWriter(diagnostic_file, fieldnames=(diagnostic_fields))
         writer.writeheader()
 
-        for index, group in enumerate(groups, start=1):
-            group_year = year_from_fecha(group.fecha)
+        processed_group_count = 0
+        for evaluation_group, training_groups in evaluation_batches:
+            group_year = year_from_fecha(evaluation_group.fecha)
             if current_year is None:
                 current_year = group_year
             elif group_year != current_year:
@@ -664,117 +825,120 @@ def main():
                 )
                 current_year = group_year
 
-            source_key = (
-                group.source_regatta_index,
-                group.first_source_prueba_index,
-            )
-            evaluation_group = evaluation_lookup[source_key]
-            evaluation_id = id(evaluation_group)
-            evaluate_predictions = evaluation_id not in evaluated_group_ids
-            if evaluate_predictions:
-                evaluated_group_ids.add(evaluation_id)
-
-            result = process_performance_group(
+            population_tracker.before_group(athletes, evaluation_group)
+            ungrouped_evaluation, grouped_evaluation = evaluate_performance_group(
                 athletes=athletes,
-                group=group,
-                k=args.k,
-                field_size_reference=args.field_size_reference,
-                field_size_alpha=args.field_size_alpha,
-                field_size_min_multiplier=args.field_size_min_multiplier,
-                field_size_max_multiplier=args.field_size_max_multiplier,
+                group=evaluation_group,
                 context_mode=args.context_mode,
-                team_update_mode=args.team_update_mode,
                 inactivity_mode=args.inactivity_mode,
                 inactivity_grace_days=args.inactivity_grace_days,
                 evidence_half_life_days=args.evidence_half_life_days,
-                uncertainty_k_max_multiplier=args.uncertainty_k_max_multiplier,
-                primary_switch_delta=args.primary_switch_delta,
-                evaluation_group=evaluation_group,
-                evaluate_predictions=evaluate_predictions,
             )
+            evaluations["ungrouped"].update(ungrouped_evaluation)
+            evaluations["grouped"].update(grouped_evaluation)
 
-            if result.processed:
-                rating_stats["groups_processed"] += 1
-                rating_stats["entries_processed"] += len(group.entries)
-                rating_stats["athlete_group_updates"] += len(result.athlete_updates)
-                rating_stats["athletes_with_multiple_appearances"] += result.stats[
-                    "athletes_with_multiple_appearances"
-                ]
-
-                for key, value in result.evaluation.items():
-                    evaluations["ungrouped"][key] += value
-                for key, value in result.grouped_evaluation.items():
-                    evaluations["grouped"][key] += value
-
-                if result.evaluation["pairwise_comparisons"]:
-                    yearly_evaluation = evaluations_by_year["ungrouped"].setdefault(
-                        group_year, Counter()
-                    )
-                    yearly_evaluation.update(result.evaluation)
-                if result.grouped_evaluation["pairwise_comparisons"]:
-                    yearly_evaluation = evaluations_by_year["grouped"].setdefault(
-                        group_year, Counter()
-                    )
-                    yearly_evaluation.update(result.grouped_evaluation)
-            else:
-                rating_stats["groups_skipped"] += 1
-                rating_stats["skip_" + str(result.skip_reason)] += 1
-
-            mean_abs_delta = None
-
-            if result.team_base_deltas:
-                mean_abs_delta = safe_mean(
-                    abs(value) for value in result.team_base_deltas
+            if ungrouped_evaluation["pairwise_comparisons"]:
+                evaluations_by_year["ungrouped"].setdefault(
+                    group_year, Counter()
+                ).update(ungrouped_evaluation)
+            if grouped_evaluation["pairwise_comparisons"]:
+                evaluations_by_year["grouped"].setdefault(group_year, Counter()).update(
+                    grouped_evaluation
                 )
 
-            writer.writerow(
-                {
-                    "regata_id": (group.regata_id),
-                    "fecha": group.fecha,
-                    "fase": (group.prueba_fase),
-                    "tipo": group.tipo,
-                    "boat": (group.embarcacion_tipo),
-                    "boat_num": (group.embarcacion_num),
-                    "distance": (group.distancia_exacta),
-                    "length_class": (group.length_class),
-                    "source_pruebas": (
-                        "|".join(str(value) for value in group.source_prueba_ids)
-                    ),
-                    "source_series": (
-                        "|".join(str(value) for value in group.source_series)
-                    ),
-                    "source_sexes": (
-                        "|".join(str(value) for value in group.source_sexes)
-                    ),
-                    "source_categories": (
-                        "|".join(str(value) for value in group.source_categories)
-                    ),
-                    "entries": len(group.entries),
-                    "n_entries": result.n_entries,
-                    "base_k": result.base_k,
-                    "field_size_multiplier": result.field_size_multiplier,
-                    "effective_k": result.effective_k,
-                    "remaining_overlap_athletes": (len(group.overlapping_athlete_ids)),
-                    "near_duplicate_rows_removed": (
-                        group.cleaning_stats["discard_near_duplicate_crew_entry"]
-                    ),
-                    "crew_size_mismatch_removed": (
-                        group.cleaning_stats["discard_crew_size_mismatch"]
-                    ),
-                    "processed": (result.processed),
-                    "skip_reason": (result.skip_reason),
-                    "mean_abs_team_delta": (mean_abs_delta),
-                    "pairwise_comparisons": (result.evaluation["pairwise_comparisons"]),
-                }
-            )
+            for child_index, group in enumerate(training_groups):
+                processed_group_count += 1
+                result = process_performance_group(
+                    athletes=athletes,
+                    group=group,
+                    k=args.k,
+                    field_size_reference=args.field_size_reference,
+                    field_size_alpha=args.field_size_alpha,
+                    field_size_min_multiplier=args.field_size_min_multiplier,
+                    field_size_max_multiplier=args.field_size_max_multiplier,
+                    context_mode=args.context_mode,
+                    team_update_mode=args.team_update_mode,
+                    inactivity_mode=args.inactivity_mode,
+                    inactivity_grace_days=args.inactivity_grace_days,
+                    evidence_half_life_days=args.evidence_half_life_days,
+                    uncertainty_k_max_multiplier=args.uncertainty_k_max_multiplier,
+                    primary_switch_delta=args.primary_switch_delta,
+                )
 
-            if index % 500 == 0:
-                print(f"  processed {index}/" f"{len(groups)} groups")
+                if result.processed:
+                    population_tracker.after_group(group, result)
+                    rating_stats["groups_processed"] += 1
+                    rating_stats["entries_processed"] += len(group.entries)
+                    rating_stats["athlete_group_updates"] += len(result.athlete_updates)
+                    rating_stats["athletes_with_multiple_appearances"] += result.stats[
+                        "athletes_with_multiple_appearances"
+                    ]
+                else:
+                    rating_stats["groups_skipped"] += 1
+                    rating_stats["skip_" + str(result.skip_reason)] += 1
+
+                mean_abs_delta = None
+
+                if result.team_base_deltas:
+                    mean_abs_delta = safe_mean(
+                        abs(value) for value in result.team_base_deltas
+                    )
+
+                writer.writerow(
+                    {
+                        "regata_id": (group.regata_id),
+                        "fecha": group.fecha,
+                        "fase": (group.prueba_fase),
+                        "tipo": group.tipo,
+                        "boat": (group.embarcacion_tipo),
+                        "boat_num": (group.embarcacion_num),
+                        "distance": (group.distancia_exacta),
+                        "length_class": (group.length_class),
+                        "source_pruebas": (
+                            "|".join(str(value) for value in group.source_prueba_ids)
+                        ),
+                        "source_series": (
+                            "|".join(str(value) for value in group.source_series)
+                        ),
+                        "source_sexes": (
+                            "|".join(str(value) for value in group.source_sexes)
+                        ),
+                        "source_categories": (
+                            "|".join(str(value) for value in group.source_categories)
+                        ),
+                        "entries": len(group.entries),
+                        "n_entries": result.n_entries,
+                        "base_k": result.base_k,
+                        "field_size_multiplier": result.field_size_multiplier,
+                        "effective_k": result.effective_k,
+                        "remaining_overlap_athletes": (
+                            len(group.overlapping_athlete_ids)
+                        ),
+                        "near_duplicate_rows_removed": (
+                            group.cleaning_stats["discard_near_duplicate_crew_entry"]
+                        ),
+                        "crew_size_mismatch_removed": (
+                            group.cleaning_stats["discard_crew_size_mismatch"]
+                        ),
+                        "processed": (result.processed),
+                        "skip_reason": (result.skip_reason),
+                        "mean_abs_team_delta": (mean_abs_delta),
+                        "pairwise_comparisons": (
+                            ungrouped_evaluation["pairwise_comparisons"]
+                            if child_index == 0
+                            else 0
+                        ),
+                    }
+                )
+
+                if processed_group_count % 500 == 0:
+                    print(f"  processed {processed_group_count}/{len(groups)} groups")
 
     if current_year is not None:
         rating_distributions_by_year[current_year] = build_rating_distributions(
             athletes, context_mode=args.context_mode
         )
+    population_tracker.finalize(athletes)
 
     rating_stats["athletes_created"] = len(athletes)
 
@@ -827,6 +991,8 @@ def main():
             for year, values in sorted(rating_distributions_by_year.items())
         },
         "modifier_distributions": (build_modifier_distributions(athletes)),
+        "population_health_by_year": population_tracker.by_year,
+        "population_health_summary": population_tracker.aggregate(),
     }
 
     summary_path = output_dir / "run_summary.json"
@@ -875,6 +1041,32 @@ def main():
             metric_text(evaluation_report["decisive_accuracy"]),
         )
 
+    print("\nElo population health by year:")
+    print(
+        f"{'Year':<8} {'Active':>7} {'New':>7} "
+        f"{'Mean':>9} {'Median':>9} {'Std':>9} "
+        f"{'P05':>9} {'P95':>9} {'Spread':>9} "
+        f"{'CohortΔ':>9} {'NetΔ':>11} {'P95|Δ|':>9}"
+    )
+    for year, report in summary["population_health_by_year"].items():
+        ratings = report["ratings"]
+        updates = report["updates"]
+        cohort = report["cohort_rating_change"]
+        spread = ratings["p95"] - ratings["p05"] if ratings["p95"] is not None else None
+        print(
+            f"{year:<8} {report['active_athletes']:>7} "
+            f"{report['new_athletes']:>7} "
+            f"{elo_text(ratings['mean']):>9} "
+            f"{elo_text(ratings['median']):>9} "
+            f"{elo_text(ratings['std']):>9} "
+            f"{elo_text(ratings['p05']):>9} "
+            f"{elo_text(ratings['p95']):>9} "
+            f"{elo_text(spread):>9} "
+            f"{elo_text(cohort['median']):>9} "
+            f"{elo_text(updates['net_delta']):>11} "
+            f"{elo_text(updates['absolute']['p95']):>9}"
+        )
+
     print("\nEnd-of-year Elo distributions (direct participants):")
     print(
         f"{'Year':<8} {'Length':<14} {'N':>7} "
@@ -901,13 +1093,26 @@ def main():
     print("\nOutputs:", output_dir.resolve())
 
 
-def _init_search_worker(groups):
-    global _SEARCH_GROUPS
+def _evaluation_support_signature(evaluations):
+    keys = (
+        "pruebas_evaluated",
+        "pairwise_comparisons",
+        "pairwise_decisive",
+        "pairwise_ties",
+    )
+    return tuple(
+        evaluations[scope][key] for scope in ("ungrouped", "grouped") for key in keys
+    )
+
+
+def _init_search_worker(groups, expected_support):
+    global _SEARCH_GROUPS, _SEARCH_EXPECTED_SUPPORT
     _SEARCH_GROUPS = groups
+    _SEARCH_EXPECTED_SUPPORT = expected_support
 
 
 def _evaluate_hyperparam_candidate(candidate):
-    if _SEARCH_GROUPS is None:
+    if _SEARCH_GROUPS is None or _SEARCH_EXPECTED_SUPPORT is None:
         raise RuntimeError("Hyperparameter worker has no performance groups")
 
     original_parameters = {
@@ -923,6 +1128,7 @@ def _evaluate_hyperparam_candidate(candidate):
         rating_engine.CONFIDENCE_TRANSFER = candidate["length_transfer"]
 
         started = perf_counter()
+        population_tracker = PopulationHealthTracker(candidate["context_mode"])
         groups = _SEARCH_GROUPS[candidate["group_pruebas"]]
         _, _, evaluations, _ = run_rating_system(
             groups,
@@ -939,9 +1145,17 @@ def _evaluate_hyperparam_candidate(candidate):
             uncertainty_k_max_multiplier=candidate["uncertainty_k_max_multiplier"],
             primary_switch_delta=candidate["primary_switch_delta"],
             evaluation_groups=_SEARCH_GROUPS[True],
+            population_tracker=population_tracker,
         )
         ungrouped_report = evaluation_summary(evaluations["ungrouped"])
         grouped_report = evaluation_summary(evaluations["grouped"])
+        actual_support = _evaluation_support_signature(evaluations)
+        if actual_support != _SEARCH_EXPECTED_SUPPORT:
+            raise RuntimeError(
+                "Evaluation support changed with the training configuration: "
+                f"expected {_SEARCH_EXPECTED_SUPPORT}, got {actual_support}"
+            )
+        population_summary = population_tracker.aggregate()
         elapsed = perf_counter() - started
     finally:
         rating_engine.PRIMARY_LAMBDA = original_parameters["primary_lambda"]
@@ -966,6 +1180,11 @@ def _evaluate_hyperparam_candidate(candidate):
         "grouped_brier_score": grouped_report["brier_score"],
         "grouped_log_loss": grouped_report["log_loss"],
         "grouped_decisive_accuracy": grouped_report["decisive_accuracy"],
+        "population_health": population_tracker.by_year,
+        **population_summary,
+        "mean_absolute_update": population_summary["absolute_updates"]["mean"],
+        "p95_absolute_update": population_summary["absolute_updates"]["p95"],
+        "max_absolute_update": population_summary["absolute_updates"]["max"],
         "elapsed_seconds": elapsed,
     }
 
@@ -1135,9 +1354,17 @@ def hyperparam_search(groups, param_grid=None, n_jobs=1, n_experiments=1000):
         f"hyperparameter configurations (seed={HYPERPARAM_RANDOM_SEED}) "
         f"with n_jobs={n_jobs}..."
     )
+    expected_support = _evaluation_support_signature(
+        calculate_evaluation_support(groups[True])
+    )
+    print(
+        "Canonical evaluation support: "
+        f"strict={expected_support[0]} pruebas/{expected_support[1]} pairs, "
+        f"grouped={expected_support[4]} units/{expected_support[5]} pairs"
+    )
     results = []
     if n_jobs == 1:
-        _init_search_worker(groups)
+        _init_search_worker(groups, expected_support)
         for completed, candidate in enumerate(candidates, start=1):
             result = _evaluate_hyperparam_candidate(candidate)
             results.append(result)
@@ -1146,7 +1373,7 @@ def hyperparam_search(groups, param_grid=None, n_jobs=1, n_experiments=1000):
         with ProcessPoolExecutor(
             max_workers=n_jobs,
             initializer=_init_search_worker,
-            initargs=(groups,),
+            initargs=(groups, expected_support),
         ) as executor:
             futures = {
                 executor.submit(_evaluate_hyperparam_candidate, candidate): candidate
@@ -1175,9 +1402,13 @@ def hyperparam_search(groups, param_grid=None, n_jobs=1, n_experiments=1000):
         f"{'Primary':>8} {'Modifier':>8} "
         f"{'Transfer':>8} "
         f"{'U LogLoss':>10} {'U Brier':>10} {'U Acc':>10} "
-        f"{'G LogLoss':>10} {'G Brier':>10} {'G Acc':>10}"
+        f"{'G LogLoss':>10} {'G Brier':>10} {'G Acc':>10} "
+        f"{'PopMean':>9} {'PopStd':>9} {'Drift':>9}"
     )
     for result in results:
+        population_mean = result["final_rating_mean"]
+        population_std = result["final_rating_std"]
+        cohort_drift = result["max_abs_cohort_median_drift"]
         print(
             f"{result['rank']:>4} {str(result['group_pruebas']):>5} "
             f"{result['context_mode']:>11} {result['team_update_mode']:>12} "
@@ -1196,7 +1427,10 @@ def hyperparam_search(groups, param_grid=None, n_jobs=1, n_experiments=1000):
             f"{result['decisive_accuracy']:>10.6f} "
             f"{result['grouped_log_loss']:>10.6f} "
             f"{result['grouped_brier_score']:>10.6f} "
-            f"{result['grouped_decisive_accuracy']:>10.6f}"
+            f"{result['grouped_decisive_accuracy']:>10.6f} "
+            f"{population_mean if population_mean is not None else float('nan'):>9.1f} "
+            f"{population_std if population_std is not None else float('nan'):>9.1f} "
+            f"{cohort_drift if cohort_drift is not None else float('nan'):>9.1f}"
         )
 
     return results

@@ -166,17 +166,6 @@ class GroupProcessResult:
         self.athlete_updates = {}
         self.stats = Counter()
 
-        self.evaluation = {
-            "pruebas_evaluated": 0,
-            "pairwise_comparisons": 0,
-            "pairwise_decisive": 0,
-            "pairwise_ties": 0,
-            "brier_sum": 0.0,
-            "log_loss_sum": 0.0,
-            "correct_decisive": 0,
-        }
-        self.grouped_evaluation = self.evaluation.copy()
-
 
 # ============================================================
 # NORMALIZATION / ATHLETE HELPERS
@@ -802,15 +791,15 @@ def evaluate_performance_group(
     evidence_half_life_days=EVIDENCE_HALF_LIFE_DAYS,
 ):
     """Evaluate one canonical group without applying rating updates."""
-    empty = GroupProcessResult()
+    empty = calculate_pairwise_evaluation([], [])
     if not group.usable or len(group.entries) < 2:
-        return empty.evaluation, empty.grouped_evaluation
+        return empty, empty.copy()
 
     length_class = normalize_length_class(group.length_class)
     tipo = normalize_context(group.tipo)
     boat = normalize_context(group.embarcacion_tipo)
     if length_class is None or tipo is None or boat is None:
-        return empty.evaluation, empty.grouped_evaluation
+        return empty, empty.copy()
 
     ensure_group_athletes(
         athletes=athletes,
@@ -854,8 +843,84 @@ def build_evaluation_group_lookup(groups):
     for group in groups:
         for source in group.source_pruebas:
             key = (group.source_regatta_index, source["source_prueba_index"])
+            if key in lookup:
+                raise ValueError(f"Source prueba belongs to multiple groups: {key}")
             lookup[key] = group
     return lookup
+
+
+def build_evaluation_batches(groups, evaluation_groups=None):
+    """Pair every canonical evaluation group with its training group(s).
+
+    Evaluation groups define the chronological schedule. A training group may
+    be unusable, but that must never suppress evaluation of its canonical
+    group. With grouped training each batch normally has one child; with
+    ungrouped training it may have several original-prueba children.
+    """
+    if evaluation_groups is None:
+        evaluation_groups = groups
+
+    evaluation_lookup = build_evaluation_group_lookup(evaluation_groups)
+    children_by_evaluation_id = {
+        id(evaluation_group): [] for evaluation_group in evaluation_groups
+    }
+
+    for group in groups:
+        source_key = (
+            group.source_regatta_index,
+            group.first_source_prueba_index,
+        )
+        evaluation_group = evaluation_lookup.get(source_key)
+        if evaluation_group is None:
+            raise ValueError(
+                "Training group has no canonical evaluation group: " f"{source_key}"
+            )
+        children_by_evaluation_id[id(evaluation_group)].append(group)
+
+    return [
+        (evaluation_group, children_by_evaluation_id[id(evaluation_group)])
+        for evaluation_group in evaluation_groups
+    ]
+
+
+def calculate_evaluation_support(groups):
+    """Calculate rating-independent support for canonical evaluation groups."""
+    support = {"ungrouped": Counter(), "grouped": Counter()}
+
+    def add_unit(entries, metrics):
+        comparisons = 0
+        for index, entry_i in enumerate(entries):
+            for other_index in range(index + 1, len(entries)):
+                entry_j = entries[other_index]
+                if entries_share_athlete(entry_i, entry_j):
+                    continue
+                comparisons += 1
+                if actual_pairwise_score(entry_i, entry_j) == 0.5:
+                    metrics["pairwise_ties"] += 1
+                else:
+                    metrics["pairwise_decisive"] += 1
+        if comparisons:
+            metrics["pruebas_evaluated"] += 1
+            metrics["pairwise_comparisons"] += comparisons
+
+    for group in groups:
+        if not group.usable or len(group.entries) < 2:
+            continue
+        if normalize_length_class(group.length_class) is None:
+            continue
+        if normalize_context(group.tipo) is None:
+            continue
+        if normalize_context(group.embarcacion_tipo) is None:
+            continue
+
+        entries_by_prueba = {}
+        for entry in group.evaluation_entries:
+            entries_by_prueba.setdefault(entry.source_prueba_index, []).append(entry)
+        for entries in entries_by_prueba.values():
+            add_unit(entries, support["ungrouped"])
+        add_unit(group.entries, support["grouped"])
+
+    return support
 
 
 # ============================================================
@@ -1176,8 +1241,6 @@ def process_performance_group(
     evidence_half_life_days=EVIDENCE_HALF_LIFE_DAYS,
     uncertainty_k_max_multiplier=UNCERTAINTY_K_MAX_MULTIPLIER,
     primary_switch_delta=PRIMARY_SWITCH_DELTA,
-    evaluation_group=None,
-    evaluate_predictions=True,
 ):
     context_mode = normalize_context_mode(context_mode)
     team_update_mode = normalize_team_update_mode(team_update_mode)
@@ -1253,16 +1316,6 @@ def process_performance_group(
         field_size_max_multiplier=field_size_max_multiplier,
     )
 
-    if evaluate_predictions:
-        result.evaluation, result.grouped_evaluation = evaluate_performance_group(
-            athletes,
-            group if evaluation_group is None else evaluation_group,
-            context_mode=context_mode,
-            inactivity_mode=inactivity_mode,
-            inactivity_grace_days=inactivity_grace_days,
-            evidence_half_life_days=evidence_half_life_days,
-        )
-
     # Calculate all appearance-level updates
     # before mutating any state.
     pending_lists = {}
@@ -1330,6 +1383,7 @@ def run_rating_system(
     primary_switch_delta=PRIMARY_SWITCH_DELTA,
     collect_group_results=False,
     evaluation_groups=None,
+    population_tracker=None,
 ):
     athletes = {}
     stats = Counter()
@@ -1338,67 +1392,64 @@ def run_rating_system(
         "grouped": Counter(),
     }
     group_results = [] if collect_group_results else None
-    evaluation_lookup = (
-        build_evaluation_group_lookup(evaluation_groups)
-        if evaluation_groups is not None
-        else None
-    )
-    evaluated_group_ids = set()
+    batches = build_evaluation_batches(groups, evaluation_groups)
 
-    for group in groups:
-        evaluation_group = None
-        evaluate_predictions = True
-        if evaluation_lookup is not None:
-            source_key = (
-                group.source_regatta_index,
-                group.first_source_prueba_index,
-            )
-            evaluation_group = evaluation_lookup[source_key]
-            evaluation_id = id(evaluation_group)
-            evaluate_predictions = evaluation_id not in evaluated_group_ids
-            if evaluate_predictions:
-                evaluated_group_ids.add(evaluation_id)
+    for evaluation_group, training_groups in batches:
+        if population_tracker is not None:
+            population_tracker.before_group(athletes, evaluation_group)
 
-        result = process_performance_group(
+        ungrouped, grouped = evaluate_performance_group(
             athletes=athletes,
-            group=group,
-            k=k,
-            field_size_reference=field_size_reference,
-            field_size_alpha=field_size_alpha,
-            field_size_min_multiplier=field_size_min_multiplier,
-            field_size_max_multiplier=field_size_max_multiplier,
+            group=evaluation_group,
             context_mode=context_mode,
-            team_update_mode=team_update_mode,
             inactivity_mode=inactivity_mode,
             inactivity_grace_days=inactivity_grace_days,
             evidence_half_life_days=evidence_half_life_days,
-            uncertainty_k_max_multiplier=uncertainty_k_max_multiplier,
-            primary_switch_delta=primary_switch_delta,
-            evaluation_group=evaluation_group,
-            evaluate_predictions=evaluate_predictions,
         )
+        evaluations["ungrouped"].update(ungrouped)
+        evaluations["grouped"].update(grouped)
 
-        if collect_group_results:
-            group_results.append(result)
+        for group in training_groups:
+            result = process_performance_group(
+                athletes=athletes,
+                group=group,
+                k=k,
+                field_size_reference=field_size_reference,
+                field_size_alpha=field_size_alpha,
+                field_size_min_multiplier=field_size_min_multiplier,
+                field_size_max_multiplier=field_size_max_multiplier,
+                context_mode=context_mode,
+                team_update_mode=team_update_mode,
+                inactivity_mode=inactivity_mode,
+                inactivity_grace_days=inactivity_grace_days,
+                evidence_half_life_days=evidence_half_life_days,
+                uncertainty_k_max_multiplier=uncertainty_k_max_multiplier,
+                primary_switch_delta=primary_switch_delta,
+            )
 
-        if not result.processed:
-            stats["groups_skipped"] += 1
-            stats["skip_" + str(result.skip_reason)] += 1
-            continue
+            if collect_group_results:
+                group_results.append(result)
 
-        stats["groups_processed"] += 1
-        stats["entries_processed"] += result.stats["entries_processed"]
-        stats["athletes_processed_occurrences"] += result.stats["athletes_processed"]
-        stats["athletes_with_multiple_appearances"] += result.stats[
-            "athletes_with_multiple_appearances"
-        ]
+            if not result.processed:
+                stats["groups_skipped"] += 1
+                stats["skip_" + str(result.skip_reason)] += 1
+                continue
 
-        for key, value in result.evaluation.items():
-            evaluations["ungrouped"][key] += value
-        for key, value in result.grouped_evaluation.items():
-            evaluations["grouped"][key] += value
+            if population_tracker is not None:
+                population_tracker.after_group(group, result)
+
+            stats["groups_processed"] += 1
+            stats["entries_processed"] += result.stats["entries_processed"]
+            stats["athletes_processed_occurrences"] += result.stats[
+                "athletes_processed"
+            ]
+            stats["athletes_with_multiple_appearances"] += result.stats[
+                "athletes_with_multiple_appearances"
+            ]
 
     stats["athletes_created"] = len(athletes)
+    if population_tracker is not None:
+        population_tracker.finalize(athletes)
 
     return (athletes, stats, evaluations, group_results)
 
