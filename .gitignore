@@ -222,3 +222,6 @@ __marimo__/
 __MACOSX/
 __pycache__/
 data/processed/
+
+# Generated hyperparameter search output
+/elo/elo_v1_output/hyperparam_search.json
