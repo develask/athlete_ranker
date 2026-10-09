@@ -156,15 +156,130 @@ matrix 2. Results: `results/search_fine.csv`.
 - At the same volatility the fine search barely beats A with matrix 2
   (0.501 against 0.506 grouped log loss at ≈15 per update).
 
+## Experiment 4: stabilisation and starting rating (`stabilisation/`)
+
+After the first rebuild, ratings did not look settled: established athletes
+kept moving in the same direction for years and the population kept spreading
+apart. Request: an athlete should be roughly adjusted within one year of races.
+Proposed knobs: a higher K or a different lambda.
+
+These runs use **KayakKorner's own engine** (`prediction/elo` in that
+repository, validated against `run_rating_system` to 2e-13), with matrix 2 and
+the chosen configuration as baseline (K=60, `uncertainty_k_max_multiplier`
+1.5, `primary_lambda` 20).
+
+New measures:
+
+- **Annual drift**: rating at the end of each season in each distance (seasons
+  with at least 3 races in it), change between consecutive seasons, by age
+  (birth year from KayakKorner): junior < 19, adult 19–34, veteran ≥ 35.
+  Veterans do not really improve year after year, so their drift should be
+  about zero.
+- **Scale**: median end-of-season fondo rating of established athletes.
+- **Comparability**: in merged groups, pairs of different sex (oriented to the
+  woman: predicted probability that she wins against how often she does) and of
+  different category (oriented to the younger one).
+- **Axis gap**: median of best − worst distance rating of athletes with at
+  least 3 direct races in two or more distances, and correlation between
+  neighbouring distances.
+- **Newcomers**: log loss of pairs involving an athlete in their first year
+  against pairs between established athletes.
+
+### Finding 1: the drift is inflation, and a higher K makes it worse
+
+`results/k_kmax_lambda.json` (27 configurations, K 40/60/90 ×
+uncertainty multiplier 1.5/3/5 × lambda 5/20/40). Mean signed drift is
+**positive for every configuration and age group**, veterans included
+(+11 to +19 per season after their second season), and grows with K:
+
+| Configuration | Veterans, 3rd season on | Adults, 3rd season on | Grouped accuracy |
+|---|---:|---:|---:|
+| K=40, ×1.5, λ=5 | +11 | +19 | 74.8 % |
+| K=60, ×1.5, λ=20 (chosen) | +15 | +25 | 76.0 % |
+| K=90, ×5, λ=40 | +19 | +36 | 78.8 % |
+
+Every newcomer starts at 1500, most of them are juniors weaker than that, and
+the established athletes who beat them collect the points; when juniors leave,
+their losses stay in the system. More K redistributes more points.
+
+### Finding 2: start newcomers near their demonstrated level
+
+**Performance rating**: the rating with which the athlete's result in their
+first group would have been exactly the expected one against their rivals'
+ratings (bisection between 1100 and 2100; newcomers in the same group are
+estimated jointly; in a crew with known partners the newcomer gets what makes
+the crew mean equal the performance; with no known boat in the group there is
+no reference and the athlete stays at 1500). The first race is still predicted
+with 1500, before the start rating is set, so there is no look-ahead.
+
+Strategies (`results/start_strategies.json`, K=60, ×1.5, λ=20):
+
+| Start | Grouped log loss | Grouped acc | Mean jump | Veteran drift | Adult drift | Established fondo median 2016 → 2026 |
+|---|---:|---:|---:|---:|---:|---|
+| 1500 (current) | 0.501 | 76.0 % | 14.4 | +15 | +25 | 1505 → 1528 |
+| 1500 + 0.3·(performance − 1500) | **0.488** | 76.1 % | 13.1 | +10 | +21 | 1504 → 1494 |
+| 1500 + 0.5·(performance − 1500) | 0.490 | 75.7 % | 12.6 | +7 | +18 | 1503 → 1464 |
+| performance only | 0.547 | 74.0 % | 12.5 | −1 | +10 | 1509 → 1358 |
+| mean of known participants of their prueba | 0.498 | 76.1 % | 13.8 | +14 | +22 | 1528 → 1531 |
+| mean of their category and sex (active last year) | 0.494 | 76.3 % | 13.9 | +14 | +24 | 1515 → 1542 |
+| category-sex mean + 0.3·(performance − mean) | 0.489 | 76.4 % | 12.6 | +6 | +16 | 1513 → 1441 |
+
+- One race is too noisy to trust fully (performance only is the worst).
+- Means alone barely touch the drift.
+- Part of the drop in veteran drift is the whole scale moving down: relative
+  to the population median, veterans rise about 11–13 per season with every
+  strategy. The rest of the "spreading" comes from the database starting in
+  2015 with everybody at 1500, elite included: with 10–20 points per regatta,
+  strong athletes take seasons to get there.
+- **1500 + 0.3·(performance − 1500)** predicts best and keeps the scale stable.
+
+### Finding 3: learn fast while uncertain, then settle
+
+With that start, a lower K and a higher uncertainty multiplier move newcomers
+fast and established athletes little (`results/start_with_k_grid.json`,
+`results/candidates_comparability.json`):
+
+| Configuration (start 0.3) | Grouped log loss | Grouped acc | Mean jump | Jump, established (n ≥ 20) | Axis gap | Corr. sprint–fondo |
+|---|---:|---:|---:|---:|---:|---:|
+| Chosen before, start 1500 | 0.501 | 76.0 % | 14.4 | 9.7 | 88 | 0.73 |
+| K=60, ×1.5, λ=20 | 0.488 | 76.1 % | 13.1 | 9.4 | 79 | 0.81 |
+| K=40, ×3, λ=10 | 0.486 | 76.3 % | 14.0 | 7.9 | 84 | 0.81 |
+| **K=40, ×3, λ=20** | **0.479** | **76.6 %** | 15.3 | 9.3 | **88** | 0.81 |
+| K=40, ×5, λ=5 | 0.476 | 76.8 % | 18.0 | 8.1 | 99 | 0.81 |
+| K=60, ×3, λ=5 | 0.474 | 76.9 % | 18.0 | 9.7 | 100 | 0.80 |
+
+Comparability (same runs):
+
+| Configuration | P(woman beats man): predicted → real | P(younger category wins): predicted → real | Log loss, different sex | Newcomer pairs vs established |
+|---|---|---|---:|---|
+| Chosen before | 38.3 % → 30.5 % (+7.8) | 45.7 % → 37.9 % (+7.8) | 0.468 | 0.573 vs 0.449 |
+| **K=40, ×3, λ=20, start 0.3** | 36.8 % → 30.5 % (+6.4) | 44.2 % → 37.9 % (+6.3) | 0.448 | 0.557 vs 0.421 |
+
+- Cross-sex and cross-category pairs are predicted almost as well as the
+  rest; every configuration slightly overrates the weaker group against the
+  stronger one, a bit less with the new one. A sex/category correction would
+  be a separate improvement.
+- Higher uncertainty multipliers bring back the axis gap the start reduces;
+  correlations between distances do not change.
+- Pairs with a first-year athlete stay much worse predicted than established
+  pairs in every configuration: two or three races are not enough to know
+  anyone.
+
+**Decision**: K=40, uncertainty multiplier 3, lambda 20 and start
+1500 + 0.3·(performance − 1500). It is the best predictor within the chosen
+volatility (about 15 points per regatta), established athletes move less than
+before, the scale stays put, and the axis gap and comparability are kept or
+improved.
+
 ## Chosen configuration
 
 ```
 group_pruebas           True
 context_mode            modifiers
 length_transfer         matrix 2 (also used as confidence transfer)
-k_factor                60
+k_factor                40
 team_update_mode        inverse_sqrt
-uncertainty_k_max       1.5
+uncertainty_k_max       3
 inactivity_mode         evidence_decay (grace 365 days, half-life 180 days)
 primary_switch_delta    20
 primary_lambda          20
@@ -172,18 +287,25 @@ modifier_lambda         5
 field_size_reference    30
 field_size_alpha        0.25
 field_size_multiplier   0.5 – 1.75
+start (KayakKorner)     1500 + 0.3·(performance in first group − 1500)
 ```
 
-| | Ungrouped acc / Brier / log loss | Grouped acc / Brier / log loss | Mean / p95 / max jump | Final std (p05–p95) |
+The first eleven come from experiments 1–3 (K was 60 and the uncertainty
+multiplier 1.5 until experiment 4); the start is not part of this repository's
+engine (with start 0 KayakKorner's engine reproduces `run_rating_system`).
+
+| | Ungrouped acc / Brier / log loss | Grouped acc / log loss | Mean / established jump | Final std (p05–p95) |
 |---|---|---|---|---|
-| Defaults | 72.96 % / 0.1908 / 0.5659 | 74.73 % / 0.1777 / 0.5342 | 10.5 / 29 / 66 | 124 (1338–1770) |
-| **Chosen** | 74.08 % / 0.1792 / 0.5375 | 75.96 % / 0.1650 / 0.5012 | 15.0 / 42 / 110 | 165 (1297–1864) |
+| Defaults | 72.96 % / 0.1908 / 0.5659 | 74.73 % / 0.5342 | 10.5 / — | 124 (1338–1770) |
+| After experiment 3 (K=60, ×1.5) | 74.08 % / 0.1792 / 0.5375 | 75.96 % / 0.5012 | 15.0 / 9.7 | 165 (1297–1864) |
+| **After experiment 4** | — | **76.6 % / 0.4789** | 15.3 / 9.3 | — |
 
-Among the configurations with a mean jump ≤ 15 it is second by grouped log
-loss (the first wins by 0.0005, which is noise), has the best ungrouped log
-loss and keeps inactivity decay, which is part of the design.
+In experiment 3, among the configurations with a mean jump ≤ 15, the chosen
+one was second by grouped log loss (the first won by 0.0005, which is noise),
+had the best ungrouped log loss and kept inactivity decay, which is part of
+the design.
 
-**Caveat:** the configuration was chosen among about 900 evaluated on the same
+**Caveat:** the configuration was chosen among about 1,000 evaluated on the same
 2015–2026 data. The evaluation predicts each group before updating, so there is
 no temporal leakage, but choosing among many configurations on the same data
 overfits a little. The landscape is flat, so any configuration nearby would
@@ -201,3 +323,8 @@ python ../experiments/kayakkorner_2026_10/search_fine.py /tmp/fine 300 6
 
 Each configuration takes about 100–150 s and 1.3 GB per worker; the broad
 search took about 3 hours with 6 workers on a laptop.
+
+Experiment 4 runs KayakKorner's engine: with the KayakKorner repository at
+`~/projects/KayakKorner` and `stabilisation/annos.json` exported from its
+database, edit the configurations at the bottom of `stabilisation/experiment.py`
+and run it (about 7 minutes per 6 configurations).
