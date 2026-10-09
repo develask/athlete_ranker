@@ -271,13 +271,33 @@ volatility (about 15 points per regatta), established athletes move less than
 before, the scale stays put, and the axis gap and comparability are kept or
 improved.
 
+### Afterwards: K=60 and a form indicator
+
+Looking at a concrete athlete whose 5000 m results clearly improved in winter
+2026 (16th of 70 at the national winter championship, 96.5 % of the median
+time, after 44th of 58 the year before), the rating moved +98 over the season
+with K=40, while the previous Glicko system had jumped +260 (that system also
+swung ±300 within a month at the start of each season).
+
+Raising K does not hurt prediction; in every run it improved it (table above:
+K=60, ×3 has grouped log loss 0.460 against 0.479). What it costs is volatility
+(about 22 points per regatta instead of 15) and a little more drift. **K was
+raised to 60** (×3, λ=20, start 0.3): grouped accuracy 77.6 %, log loss 0.460;
+that athlete's 2026 season became +128.
+
+KayakKorner also shows a **form** indicator that does not touch the rating:
+per distance, how many points above or below their rating an athlete has
+competed in the last 6 months (at least 3 regattas), i.e. the shift d with
+which the expected scores of those races (with the ratings of the time) would
+match what happened: Σ rivals·E(d) = Σ rivals·actual.
+
 ## Chosen configuration
 
 ```
 group_pruebas           True
 context_mode            modifiers
 length_transfer         matrix 2 (also used as confidence transfer)
-k_factor                40
+k_factor                60
 team_update_mode        inverse_sqrt
 uncertainty_k_max       3
 inactivity_mode         evidence_decay (grace 365 days, half-life 180 days)
@@ -291,14 +311,15 @@ start (KayakKorner)     1500 + 0.3·(performance in first group − 1500)
 ```
 
 The first eleven come from experiments 1–3 (K was 60 and the uncertainty
-multiplier 1.5 until experiment 4); the start is not part of this repository's
-engine (with start 0 KayakKorner's engine reproduces `run_rating_system`).
+multiplier 1.5 until experiment 4, then K=40, and back to 60 afterwards); the
+start is not part of this repository's engine (with start 0 KayakKorner's engine reproduces `run_rating_system`).
 
 | | Ungrouped acc / Brier / log loss | Grouped acc / log loss | Mean / established jump | Final std (p05–p95) |
 |---|---|---|---|---|
 | Defaults | 72.96 % / 0.1908 / 0.5659 | 74.73 % / 0.5342 | 10.5 / — | 124 (1338–1770) |
 | After experiment 3 (K=60, ×1.5) | 74.08 % / 0.1792 / 0.5375 | 75.96 % / 0.5012 | 15.0 / 9.7 | 165 (1297–1864) |
-| **After experiment 4** | — | **76.6 % / 0.4789** | 15.3 / 9.3 | — |
+| After experiment 4 (K=40) | — | 76.6 % / 0.4789 | 15.3 / 9.3 | — |
+| **Final (K=60)** | — | **77.6 % / 0.4601** | 21.8 / 13.0 | — |
 
 In experiment 3, among the configurations with a mean jump ≤ 15, the chosen
 one was second by grouped log loss (the first won by 0.0005, which is noise),
