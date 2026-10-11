@@ -128,9 +128,9 @@ class ModeloTiempos:
         mejora: mejora esperada al año (log-velocidad) de un prebenjamín; la de cada categoría es
         mejora × pasos hasta senior / 7 (senior y veterano, 0). arranque: un palista nuevo empieza en
         −arranque × pasos hasta senior, en vez de en 0.
-        causal: la categoría (para q, mejora y arranque) es la de la prueba que se está corriendo,
-        no la más corrida del año; no mira el futuro y no cambia al llegar regatas nuevas (la que
-        haría falta en KayakKorner para actualizar regata a regata)."""
+        causal: la categoría (para q, mejora y arranque) es la de la prueba que se está corriendo
+        (si no tiene, la última conocida del palista; si nunca, senior), no la más corrida del año;
+        no mira el futuro y no cambia al llegar regatas nuevas (la de KayakKorner)."""
         self.sigma2 = {c: v * v for c, v in sigma.items()}
         q = q_anual if isinstance(q_anual, dict) else dict.fromkeys(GRUPOS_CATEGORIA.values(), q_anual)
         self.q = {g: v ** 2 / 365.0 for g, v in q.items()}
@@ -144,6 +144,7 @@ class ModeloTiempos:
         self.mejora, self.arranque = mejora, arranque
         self.cats_finas = categorias(finas=True) if (mejora or arranque) else {}
         self.cat_prueba = categoria_pruebas() if causal else None
+        self.ultima_cat = {}  # causal: la última categoría conocida de cada palista
         # Diagnóstico para las pruebas de anclaje: por prueba, la dificultad estimada solo
         # con los botes asentados y sin compartir nada con el grupo.
         self.mus = []  # (prueba_id, μ, botes asentados)
@@ -202,7 +203,15 @@ class ModeloTiempos:
             for prueba_id, indices in zip(g.get("pruebas_unidad", ()), g["unidades"]):
                 for b in indices:
                     cat_bote[b] = self.cat_prueba.get(prueba_id)
-        estados = [[self._preparar(pal, clase, fecha, cat_bote[b]) for pal in tripulacion]
+        def cat_de(pal, cat):
+            # Causal: la de su prueba; si la prueba no tiene, la última conocida; si nunca, senior.
+            if self.cat_prueba is None:
+                return None
+            if cat:
+                self.ultima_cat[pal] = cat
+            return self.ultima_cat.get(pal, "senior")
+
+        estados = [[self._preparar(pal, clase, fecha, cat_de(pal, cat_bote[b])) for pal in tripulacion]
                    for b, (tripulacion, _) in enumerate(g["botes"])]
         theta = [sum(s[0] for s in ss) / len(ss) for ss in estados]
         var = [sum(s[1] for s in ss) / len(ss) ** 2 for ss in estados]
