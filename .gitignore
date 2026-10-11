@@ -226,3 +226,5 @@ data/processed/
 # Generated hyperparameter search output
 /elo/elo_v1_output/hyperparam_search.json
 experiments/kayakkorner_2026_10/stabilisation/annos.json
+experiments/kayakkorner_2026_10/time_rating/cache.pkl
+experiments/kayakkorner_2026_10/time_rating/results/graficas.html

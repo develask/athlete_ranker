@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Elo y tiempos</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.4.3/echarts.min.js"></script>
+<style>
+  :root {
+    --primary-50: rgb(242 245 249); --primary-100: rgb(226 233 240); --primary-200: rgb(197 210 224);
+    --primary-300: rgb(150 172 198); --primary-600: rgb(50 80 117); --primary-700: rgb(22 48 79);
+    --accent-600: rgb(184 134 27); --accent-700: rgb(146 100 24);
+    --neutral-200: rgb(229 231 235); --neutral-500: rgb(107 114 128); --neutral-600: rgb(75 85 99); --neutral-900: rgb(17 24 39);
+    --success-700: rgb(21 128 61); --danger-700: rgb(165 41 34);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: rgb(248 250 252); color: var(--neutral-900); }
+  main { max-width: 1200px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 20px; margin: 4px 0 4px; color: var(--primary-700); }
+  .sub { font-size: 13px; color: var(--neutral-600); margin: 0 0 12px; }
+  .controles { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
+  .chip { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; border-radius: 999px; border: 1px solid var(--neutral-200);
+          background: #fff; padding: 6px 12px; font-size: 12px; font-weight: 500; color: rgb(55 65 81); text-transform: capitalize; cursor: pointer; }
+  .chip .punto { width: 10px; height: 10px; border-radius: 50%; }
+  .chip[aria-pressed="true"] { outline: 2px solid var(--c); outline-offset: 1px; }
+  .sel { border: 1px solid var(--neutral-200); border-radius: 8px; padding: 6px 10px; font-size: 13px; background: #fff; }
+  .columnas { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 860px) { .columnas { grid-template-columns: 1fr; } }
+  .card { background: #fff; border: 1px solid var(--primary-100); border-radius: 16px; padding: 16px; margin-bottom: 16px; }
+  .card h2 { font-size: 15px; margin: 0 0 2px; color: var(--primary-700); }
+  .card .nota { font-size: 11px; color: var(--neutral-500); margin: 4px 0 8px; }
+  svg.radar { width: 100%; max-width: 320px; display: block; margin: 0 auto; }
+  table { width: 100%; font-size: 13px; border-collapse: collapse; margin-top: 8px; }
+  th, td { padding: 6px 4px; text-align: right; border-bottom: 1px solid rgb(243 244 246); vertical-align: top; }
+  th:first-child { text-align: left; }
+  thead th { font-size: 12px; text-transform: capitalize; }
+  .peq { font-size: 11px; color: var(--neutral-500); }
+  .top { font-size: 11px; color: var(--accent-700); }
+  .grafica { height: 300px; border-radius: 12px; border: 1px solid var(--primary-100); background: linear-gradient(135deg, var(--primary-50), #fff); }
+  .buscador { position: relative; flex: 1 1 280px; max-width: 420px; }
+  .buscador input { width: 100%; border: 1px solid var(--primary-200); border-radius: 10px; padding: 9px 12px; font-size: 14px; }
+  .sugerencias { position: absolute; z-index: 10; top: 100%; left: 0; right: 0; margin: 4px 0 0; padding: 4px; list-style: none;
+                 background: #fff; border: 1px solid var(--primary-100); border-radius: 10px; box-shadow: 0 8px 24px rgb(0 0 0 / .08); max-height: 320px; overflow: auto; }
+  .sugerencias li { padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; text-transform: capitalize; display: flex; justify-content: space-between; gap: 8px; }
+  .sugerencias li:hover, .sugerencias li.marcada { background: var(--primary-50); }
+  .sugerencias .det { color: var(--neutral-500); font-size: 11px; text-transform: none; white-space: nowrap; }
+  .chip .quitar { border: 0; background: none; color: var(--neutral-500); font-size: 15px; line-height: 1; cursor: pointer; padding: 0 0 0 2px; }
+  .vacio { text-align: center; color: var(--neutral-500); font-size: 14px; padding: 40px 16px; }
+  .tabla-pruebas { overflow-x: auto; max-height: 520px; overflow-y: auto; }
+  .tabla-pruebas table { font-size: 12px; }
+  .tabla-pruebas thead th { position: sticky; top: 0; background: #fff; text-transform: none; color: var(--neutral-600); font-weight: 600; }
+  .tabla-pruebas td.nombre { text-align: left; }
+  .pos { color: var(--success-700); } .neg { color: var(--danger-700); }
+  .leyenda { text-align: center; font-size: 11px; color: var(--neutral-500); margin-top: 6px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Elo actual frente a rating de tiempos</h1>
+  <p class="sub">Las gráficas de KayakKorner con los dos sistemas. Rating de tiempos: 1500 es el palista medio de 2025 (todas las categorías) en cada distancia y 25 puntos son un 1 % de velocidad (100 puntos, un 4 %); la escala es la misma todos los años.</p>
+  <div class="controles" id="busqueda" hidden>
+    <div class="buscador">
+      <input id="q" type="search" placeholder="Añadir palista por nombre…" autocomplete="off" aria-label="Buscar palista por nombre">
+      <ul class="sugerencias" id="sugerencias" hidden></ul>
+    </div>
+  </div>
+  <div class="controles" id="chips" aria-label="Palista de referencia"></div>
+  <div class="controles">
+    <label for="clase" class="peq">Distancia de la evolución</label>
+    <select id="clase" class="sel"></select>
+  </div>
+  <div class="columnas" id="columnas"></div>
+  <section class="card" id="pruebas" hidden></section>
+</main>
+<script>
+let DATOS = /*DATOS*/null;
+const SERVIDOR = DATOS === null;
+const COLORES = ['rgb(76 107 144)', 'rgb(233 115 108)', 'rgb(69 168 154)', 'rgb(219 170 45)', 'rgb(139 92 246)', 'rgb(224 85 159)'];
+const SISTEMAS = {
+  elo: { titulo: 'Elo actual', unidad: '', fmt: v => Math.round(v).toLocaleString('es-ES'), fmtMargen: v => Math.round(v), marca: v => `+${Math.round(v / 10) * 10}` },
+  tiempos: { titulo: 'Rating de tiempos', unidad: '', fmt: v => Math.round(v).toLocaleString('es-ES'), fmtMargen: v => Math.round(v), marca: v => `+${Math.round(v / 10) * 10}` },
+};
+const RADAR = { centro: 150, radio: 110 };
+const ETIQ = [{ x: 150, y: 28, a: 'middle' }, { x: 296, y: 154, a: 'end' }, { x: 150, y: 282, a: 'middle' }, { x: 4, y: 154, a: 'start' }];
+let activo = null;
+let clase = null;
+function alCargar() {
+  if (!DATOS.palistas.some(p => p.id === activo)) activo = DATOS.palistas[0]?.id ?? null;
+  if (!clase && DATOS.palistas.length) {  // la distancia con más carreras del primero
+    const p = DATOS.sistemas.tiempos.perfiles[0];
+    clase = p.modalidades.reduce((a, b) => (b.carreras > a.carreras ? b : a)).clave;
+    document.getElementById('clase').value = clase;
+  }
+}
+const graficas = {};
+
+const color = id => COLORES[DATOS.palistas.findIndex(p => p.id === id) % COLORES.length];
+const nombre = id => DATOS.palistas.find(p => p.id === id).nombre;
+
+// --- Geometría del radar (palista-radar/radar-geometria.ts) ---
+const dispersion = c => Math.max(1e-9, (c[4] - c[0]) / 2.563);
+function punto(eje, valor, e) {
+  const f = Math.max(0, Math.min(1, (valor - e.min) / (e.max - e.min)));
+  const ang = -Math.PI / 2 + eje * Math.PI / 2, r = RADAR.radio * f;
+  return [RADAR.centro + r * Math.cos(ang), RADAR.centro + r * Math.sin(ang)];
+}
+const txt = p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`;
+const camino = (pts, cerrado) => 'M' + pts.map(txt).join(' L') + (cerrado ? ' Z' : '');
+function escalaAbsoluta(listas, sis) {
+  let min = sis === 'elo' ? 1300 : -10, max = sis === 'elo' ? 2100 : 10;
+  for (const l of listas) for (const m of l) if (m.carreras) { min = Math.min(min, m.rating - m.margen); max = Math.max(max, m.rating + m.margen); }
+  const paso = sis === 'elo' ? 100 : 5;
+  return { min: Math.floor(min / paso) * paso, max: Math.ceil(max / paso) * paso };
+}
+class Dibujo {
+  constructor(cortes, absoluta) { this.cortes = cortes; this.escala = cortes ? { min: -3, max: 3 } : absoluta; }
+  valor(eje, v) { return this.cortes ? (v - this.cortes[eje][2]) / dispersion(this.cortes[eje]) : v; }
+  punto(eje, v) { return punto(eje, this.valor(eje, v), this.escala); }
+  tramos(mods) { const n = mods.length; return mods.map((m, i) => [i, (i + 1) % n, m.carreras > 0 && mods[(i + 1) % n].carreras > 0]); }
+  sitio(mods, eje, d = 0) { const m = mods[eje]; return m.carreras > 0 ? this.punto(eje, m.rating + d * m.margen) : [RADAR.centro, RADAR.centro]; }
+  perfil(mods) { return this.tramos(mods).filter(t => t[2]).map(([i, j]) => camino([this.sitio(mods, i), this.sitio(mods, j)])).join(' '); }
+  vacio(mods) { return this.tramos(mods).filter(([i, j, ambos]) => !ambos && (mods[i].carreras || mods[j].carreras)).map(([i, j]) => camino([this.sitio(mods, i), this.sitio(mods, j)])).join(' '); }
+  banda(mods) { return this.tramos(mods).filter(t => t[2]).map(([i, j]) => camino([this.sitio(mods, i, 1), this.sitio(mods, j, 1), this.sitio(mods, j, -1), this.sitio(mods, i, -1)], true)).join(' '); }
+  barras(mods) {
+    const n = mods.length;
+    return mods.flatMap((m, i) => (!m.carreras || mods[(i + 1) % n].carreras || mods[(i + n - 1) % n].carreras) ? [] : [camino([this.sitio(mods, i, -1), this.sitio(mods, i, 1)])]).join(' ');
+  }
+  marcas(sis) {
+    if (!this.cortes) return [];
+    const mitad = this.escala.max / 2;
+    return this.cortes.map((c, i) => { const [x, y] = punto(i, mitad, this.escala); const v = i % 2 === 0;
+      return { x: v ? x + 4 : x, y: v ? y + 3 : y - 4, t: SISTEMAS[sis].marca(mitad * dispersion(c)), a: v ? 'start' : 'middle' }; });
+  }
+}
+function rejilla() {
+  return [0.25, 0.5, 0.75, 1].map(f => { const r = RADAR.radio * f, c = RADAR.centro; return `${c},${c - r} ${c + r},${c} ${c},${c + r} ${c - r},${c}`; });
+}
+function topPct(v, c) {  // como api/elo.py: percentil interpolado entre los cortes, «top» = 100 − percentil
+  const ps = [10, 25, 50, 75, 90];
+  let p;
+  if (v <= c[0]) p = 10 * Math.max(0, 1 - (c[0] - v) / (2 * dispersion(c)));
+  else if (v >= c[4]) p = 90 + 10 * Math.min(1, (v - c[4]) / (2 * dispersion(c)));
+  else for (let k = 0; k < 4; k++) if (v <= c[k + 1]) { p = ps[k] + (ps[k + 1] - ps[k]) * (v - c[k]) / Math.max(1e-9, c[k + 1] - c[k]); break; }
+  return Math.max(1, Math.round(100 - p));
+}
+
+const CAT = { prebenjamin: 'Prebenjamín', benjamin: 'Benjamín', alevin: 'Alevín', infantil: 'Infantil', cadete: 'Cadete', junior: 'Junior', sub23: 'Sub23', senior: 'Senior', veterano: 'Veterano' };
+const etiquetaCat = cs => cs ? `${CAT[cs[0]] ?? cs[0]} ${cs[1] === 'femenino' ? 'F' : cs[1] === 'masculino' ? 'M' : ''}`.trim() : null;
+
+function radarHTML(sis) {
+  const S = DATOS.sistemas[sis], cfg = SISTEMAS[sis];
+  const perfiles = S.perfiles.filter(p => p.modalidades.some(m => m.carreras));
+  if (!perfiles.length) return '<p class="peq">Sin datos.</p>';
+  const act = perfiles.find(p => p.palista_id === activo) ?? perfiles[0];
+  const cortes = act.modalidades.every(m => m.cortes) ? act.modalidades.map(m => m.cortes) : null;
+  const d = new Dibujo(cortes, escalaAbsoluta(perfiles.map(p => p.modalidades), sis));
+  const ordenados = [...perfiles].sort((a, b) => (a === act) - (b === act));
+  let s = `<svg class="radar" viewBox="0 0 300 300" role="img" aria-label="Radar ${cfg.titulo}">`;
+  rejilla().forEach((r, i, arr) => { s += `<polygon points="${r}" fill="${i === arr.length - 1 ? 'var(--primary-50)' : 'none'}" stroke="${i === arr.length - 1 ? 'var(--primary-200)' : 'var(--primary-100)'}"/>`; });
+  s += `<line x1="150" y1="40" x2="150" y2="260" stroke="var(--primary-100)"/><line x1="40" y1="150" x2="260" y2="150" stroke="var(--primary-100)"/>`;
+  const banda = d.banda(act.modalidades), barras = d.barras(act.modalidades), c = color(act.palista_id);
+  if (banda) s += `<path d="${banda}" fill="${c}" fill-opacity="0.22"/>`;
+  if (barras) s += `<path d="${barras}" fill="none" stroke="${c}" stroke-width="10" stroke-linecap="round" stroke-opacity="0.22"/>`;
+  if (cortes) s += `<polygon points="${[0, 0, 0, 0].map((v, i) => txt(punto(i, v, d.escala))).join(' ')}" fill="none" stroke="var(--accent-600)" stroke-width="1.2" stroke-dasharray="4 4"/>`;
+  d.marcas(sis).forEach(m => { s += `<text x="${m.x}" y="${m.y}" text-anchor="${m.a}" font-size="8" fill="var(--neutral-500)">${m.t}</text>`; });
+  for (const p of ordenados) {
+    const col = color(p.palista_id), mods = p.modalidades;
+    s += `<path d="${d.vacio(mods)}" fill="none" stroke="${col}" stroke-width="1.2" stroke-dasharray="3 3" stroke-opacity="0.6"/>`;
+    s += `<path d="${d.perfil(mods)}" fill="none" stroke="${col}" stroke-width="${p === act ? 2.6 : 2}" stroke-linejoin="round" stroke-linecap="round"/>`;
+    mods.forEach((m, i) => { if (m.carreras) { const [x, y] = d.punto(i, m.rating); s += `<circle cx="${x}" cy="${y}" r="3" fill="${col}"/>`; } });
+  }
+  DATOS.clases.forEach((m, i) => { s += `<text x="${ETIQ[i].x}" y="${ETIQ[i].y}" text-anchor="${ETIQ[i].a}" font-size="12" font-weight="500" fill="var(--primary-700)">${m.etiqueta}</text>`; });
+  s += '</svg>';
+  s += cortes ? `<p class="leyenda">Rombo central: mediana ${etiquetaCat(act.categoria)} (${act.año}). Los números, puntos sobre la mediana en cada distancia${sis === 'tiempos' ? ' (25 = 1 %)' : ''}.</p>`
+              : `<p class="leyenda">Sin cortes de su categoría en las cuatro distancias: escala absoluta.</p>`;
+  // Tabla por distancia
+  s += '<table><thead><tr><th>Distancia</th>' + perfiles.map(p => `<th style="color:${color(p.palista_id)}">${nombre(p.palista_id).split(' ')[0]}</th>`).join('') + '</tr></thead><tbody>';
+  DATOS.clases.forEach((cl, i) => {
+    const conDatos = perfiles.filter(p => p.modalidades[i].carreras).map(p => p.modalidades[i].rating);
+    const mejor = Math.max(...conDatos);
+    s += `<tr><th>${cl.etiqueta}</th>` + perfiles.map(p => {
+      const m = p.modalidades[i];
+      if (!m.carreras) return '<td class="peq">—</td>';
+      const top = m.cortes ? `<br><span class="top">top ${topPct(m.rating, m.cortes)} %</span>` : '';
+      return `<td><span style="font-weight:${perfiles.length > 1 && m.rating === mejor ? 700 : 400}">${cfg.fmt(m.rating)}${cfg.unidad}</span> <span class="peq">±${cfg.fmtMargen(m.margen)}</span><br><span class="peq">${m.carreras} regatas</span>${top}</td>`;
+    }).join('') + '</tr>';
+  });
+  s += '<tr><th class="top">Categoría</th>' + perfiles.map(p => `<td class="top">${etiquetaCat(p.categoria) ?? '—'}</td>`).join('') + '</tr></tbody></table>';
+  return s;
+}
+
+function opcionesEvolucion(sis) {
+  const S = DATOS.sistemas[sis], cfg = SISTEMAS[sis];
+  const ts = f => new Date(f).getTime();
+  const series = [];
+  const act = DATOS.palistas.find(p => p.id === activo);
+  const puntosAct = S.evolucion[activo]?.[clase] ?? [];
+  if (puntosAct.length) {
+    const c = color(activo);
+    series.push({ name: 'margen-base', type: 'line', stack: 'm', stackStrategy: 'all', symbol: 'none', silent: true, smooth: 0.3, lineStyle: { opacity: 0 }, z: 1, tooltip: { show: false }, data: puntosAct.map(p => [ts(p[0]), p[1] - p[2]]) });
+    series.push({ name: 'Margen', type: 'line', stack: 'm', stackStrategy: 'all', symbol: 'none', silent: true, smooth: 0.3, lineStyle: { opacity: 0 }, areaStyle: { color: c, opacity: 0.16 }, z: 1, tooltip: { show: false }, data: puntosAct.map(p => [ts(p[0]), 2 * p[2]]) });
+    // Mediana de su categoría de cada año (a mitad de año).
+    const med = [];
+    for (const [año, cs] of Object.entries(act.categorias_año ?? {})) {
+      const v = S.medianas[`${clase}|${cs[0]}|${cs[1]}`]?.[año];
+      if (v != null) med.push([new Date(+año, 6, 1).getTime(), v]);
+    }
+    med.sort((a, b) => a[0] - b[0]);
+    series.push({ name: 'Mediana de su categoría', type: 'line', symbol: 'none', smooth: 0.3, color: 'rgb(184 134 27)', lineStyle: { width: 1.5, type: 'dashed' }, z: 2, data: med });
+  }
+  for (const p of DATOS.palistas) {
+    const pts = S.evolucion[p.id]?.[clase] ?? [];
+    if (!pts.length) continue;
+    series.push({ name: p.nombre, type: 'line', symbol: 'none', smooth: 0.3, color: color(p.id), lineStyle: { width: p.id === activo ? 2.8 : 2.2 }, z: p.id === activo ? 4 : 3, data: pts.map(q => [ts(q[0]), q[1]]) });
+  }
+  return {
+    textStyle: { fontFamily: 'inherit' },
+    grid: { top: 12, right: 12, bottom: 28, left: 48 },
+    tooltip: { trigger: 'axis', valueFormatter: v => v == null ? '' : cfg.fmt(v) + cfg.unidad },
+    xAxis: { type: 'time', axisLabel: { hideOverlap: true, color: 'rgb(75 85 99)' }, axisLine: { lineStyle: { color: 'rgb(226 233 240)' } }, axisTick: { show: false } },
+    yAxis: { type: 'value', scale: true, splitNumber: 4, axisLabel: { formatter: v => cfg.fmt(v), color: 'rgb(75 85 99)' }, splitLine: { lineStyle: { color: 'rgb(226 233 240)' } } },
+    dataZoom: [{ type: 'inside', filterMode: 'none' }],
+    series: series.map(s => ({ ...s, emphasis: { disabled: true } })),
+  };
+}
+
+const signo = v => v == null ? '—' : (v > 0 ? '+' : '') + v.toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' %';
+function tablaPruebas() {
+  const caja = document.getElementById('pruebas');
+  const filas = (DATOS.pruebas?.[activo] ?? []).filter(f => f.clase === clase).slice().reverse();
+  caja.hidden = !DATOS.palistas.length;
+  if (!DATOS.palistas.length) return;
+  const etiqueta = { super_sprint: 'super sprint', sprint: 'sprint', fondo: 'fondo', maraton: 'maratón' }[clase];
+  let h = `<h2>Pruebas de <span style="text-transform:capitalize">${nombre(activo)}</span> en ${etiqueta}</h2>
+    <p class="nota">Dificultad: cuánto más lenta fue la prueba que la típica de esa distancia anunciada y barco (viento, corriente o recorrido más largo); se estima con los niveles de todos los que corrieron.
+    Distancia efectiva: la que habría tenido con condiciones normales. Nivel del campo: nivel medio de los botes antes de correr, en puntos de tiempos.
+    Rendimiento: cuánto más rápido (+) o lento (−) fue el palista de lo que esperaba su nivel.</p>`;
+  if (!filas.length) { caja.innerHTML = h + '<p class="peq">Sin pruebas en esta distancia.</p>'; return; }
+  h += '<div class="tabla-pruebas"><table><thead><tr><th>Fecha</th><th>Regata · prueba</th><th>Puesto</th><th>Dificultad</th><th>Distancia</th><th>Efectiva</th><th>Nivel del campo</th><th>Rendimiento</th></tr></thead><tbody>';
+  for (const f of filas) {
+    const fecha = new Date(f.fecha).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
+    h += `<tr><td style="text-align:left;white-space:nowrap">${fecha}</td><td class="nombre">${f.regata}<br><span class="peq">${f.prueba}</span></td>
+      <td>${f.puesto ?? '—'}<span class="peq">/${f.botes}</span></td>
+      <td class="${f.dificultad > 0 ? 'neg' : f.dificultad < 0 ? 'pos' : ''}">${signo(f.dificultad)}</td>
+      <td>${f.distancia ? f.distancia.toLocaleString('es-ES') + ' m' : '—'}</td>
+      <td>${f.distancia_efectiva ? '≈ ' + f.distancia_efectiva.toLocaleString('es-ES') + ' m' : '—'}</td>
+      <td>${f.campo == null ? '—' : f.campo.toLocaleString('es-ES')}</td>
+      <td class="${f.rendimiento > 0 ? 'pos' : f.rendimiento < 0 ? 'neg' : ''}" style="font-weight:600">${signo(f.rendimiento)}</td></tr>`;
+  }
+  caja.innerHTML = h + '</tbody></table></div>';
+}
+
+function pintar() {
+  document.getElementById('chips').innerHTML = DATOS.palistas.map(p =>
+    `<span class="chip" style="--c:${color(p.id)}" aria-pressed="${p.id === activo}" data-id="${p.id}" role="button" tabindex="0"><span class="punto" style="background:${color(p.id)}"></span>${p.nombre}` +
+    (SERVIDOR ? `<button type="button" class="quitar" data-quitar="${p.id}" aria-label="Quitar ${p.nombre}">×</button>` : '') + '</span>').join('');
+  document.querySelectorAll('.chip').forEach(b => b.onclick = e => {
+    if (e.target.dataset.quitar) { quitar(+e.target.dataset.quitar); return; }
+    activo = +b.dataset.id; pintar();
+  });
+  const col = document.getElementById('columnas');
+  if (!DATOS.palistas.length) {
+    col.style.display = 'block';
+    col.innerHTML = '<div class="card vacio">Busca uno o varios palistas por nombre para ver sus gráficas.</div>';
+    Object.keys(graficas).forEach(k => { graficas[k].dispose(); delete graficas[k]; });
+    tablaPruebas();
+    return;
+  }
+  if (col.querySelector('.vacio')) { col.innerHTML = ''; col.style.display = ''; }
+  if (!col.children.length) {
+    col.innerHTML = Object.keys(SISTEMAS).map(sis => `
+      <div>
+        <section class="card"><h2>Perfil · ${SISTEMAS[sis].titulo}</h2><div id="radar-${sis}"></div></section>
+        <section class="card"><h2>Evolución · ${SISTEMAS[sis].titulo}</h2>
+          <p class="nota">Franja: margen del elegido. Discontinua dorada: mediana de su categoría cada año. Rueda o pellizco para ampliar.</p>
+          <div class="grafica" id="evol-${sis}"></div></section>
+      </div>`).join('');
+    for (const sis of Object.keys(SISTEMAS)) graficas[sis] = echarts.init(document.getElementById(`evol-${sis}`));
+    window.addEventListener('resize', () => Object.values(graficas).forEach(g => g.resize()));
+  }
+  for (const sis of Object.keys(SISTEMAS)) {
+    document.getElementById(`radar-${sis}`).innerHTML = radarHTML(sis);
+    graficas[sis].setOption(opcionesEvolucion(sis), true);
+  }
+  tablaPruebas();
+}
+
+const sel = document.getElementById('clase');
+sel.innerHTML = [['super_sprint', 'Super sprint'], ['sprint', 'Sprint'], ['fondo', 'Fondo'], ['maraton', 'Maratón']].map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
+sel.onchange = () => { clase = sel.value; pintar(); };
+
+// --- Modo servidor: buscador por nombre y selección en la URL (?ids=) ---
+let ids = [];
+async function cargar() {
+  history.replaceState(null, '', ids.length ? `?ids=${ids.join(',')}` : location.pathname);
+  DATOS = ids.length ? await (await fetch(`/datos?ids=${ids.join(',')}`)).json()
+                     : { palistas: [], sistemas: {}, clases: [] };
+  alCargar(); pintar();
+}
+function añadir(id) { if (!ids.includes(id) && ids.length < 6) { ids.push(id); activo = id; cargar(); } }
+function quitar(id) { ids = ids.filter(x => x !== id); cargar(); }
+
+if (SERVIDOR) {
+  document.getElementById('busqueda').hidden = false;
+  const q = document.getElementById('q'), lista = document.getElementById('sugerencias');
+  let resultados = [], marcada = -1, temporizador = null, ultima = 0;
+  const mostrar = () => {
+    lista.hidden = !resultados.length;
+    lista.innerHTML = resultados.map((r, i) => `<li data-i="${i}" class="${i === marcada ? 'marcada' : ''}"><span>${r.nombre}</span><span class="det">${r.detalle}</span></li>`).join('');
+    lista.querySelectorAll('li').forEach(li => li.onmousedown = e => { e.preventDefault(); elegir(+li.dataset.i); });
+  };
+  const elegir = i => { const r = resultados[i]; if (!r) return; resultados = []; q.value = ''; mostrar(); añadir(r.id); };
+  q.oninput = () => {
+    clearTimeout(temporizador);
+    const texto = q.value.trim();
+    if (texto.length < 2) { resultados = []; mostrar(); return; }
+    temporizador = setTimeout(async () => {
+      const n = ++ultima;
+      const r = await (await fetch(`/buscar?q=${encodeURIComponent(texto)}`)).json();
+      if (n !== ultima) return;  // llegó tarde
+      resultados = r.filter(x => !ids.includes(x.id)); marcada = resultados.length ? 0 : -1; mostrar();
+    }, 200);
+  };
+  q.onkeydown = e => {
+    if (e.key === 'ArrowDown') { marcada = Math.min(resultados.length - 1, marcada + 1); mostrar(); e.preventDefault(); }
+    else if (e.key === 'ArrowUp') { marcada = Math.max(0, marcada - 1); mostrar(); e.preventDefault(); }
+    else if (e.key === 'Enter') { elegir(marcada); }
+    else if (e.key === 'Escape') { resultados = []; mostrar(); }
+  };
+  q.onblur = () => setTimeout(() => { resultados = []; mostrar(); }, 100);
+  ids = (new URLSearchParams(location.search).get('ids') ?? '').split(',').filter(x => /^\d+$/.test(x)).map(Number);
+  cargar();
+  q.focus();
+} else {
+  alCargar(); pintar();
+}
+</script>
+</body>
+</html>

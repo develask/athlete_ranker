@@ -291,6 +291,205 @@ competed in the last 6 months (at least 3 regattas), i.e. the shift d with
 which the expected scores of those races (with the ratings of the time) would
 match what happened: Σ rivals·E(d) = Σ rivals·actual.
 
+## Experiment 5: a rating in units of time (`time_rating/`)
+
+Question: the Elo scale keeps widening and its points do not mean the same
+from one year to the next. Can a rating be compared year to year?
+
+Calibration of the current Elo first (per prueba pairs, fitting a scale s in
+P(s·d) each year): favourites win more often than predicted (s > 1), and s
+grows from about 1.2 (2016–2019) to 1.5–1.7 (2023–2026) for established
+athletes; it is about 1.0 in sprint and 1.3–2.0 in the other distances. The
+same difference in points means more in later years and in some distances.
+
+The Elo only uses positions. **Time model**: a Kalman filter with one level
+θ per athlete and distance class,
+
+    log(time of boat b in prueba j) = μ_j − mean(θ of the crew) + noise(σ_class)
+
+θ is log-speed (+0.01 ≈ 1 % faster). μ_j, the difficulty of the prueba,
+absorbs the real distance (announced distances are often wrong, especially
+in maratón), conditions, course and boat type, so only times relative to the
+same prueba matter. μ_j is a robust weighted mean of what each boat implies
+given the levels before the race; with `tau` the pruebas of the same
+performance group (same day, distance, boat and phase) share a difficulty
+with a deviation of `tau`, which links categories that paddle the same
+distance the same day. Levels gain variance with time without racing (more
+for children and juniors), residuals are clipped (Huber 2.5) for capsizes,
+packs and bad timing.
+
+Both systems are evaluated on the same 2.8 M within-prueba pairs, before
+updating. Residuals have long tails (p99 at 6–8 robust SD, worst in sprint),
+so raw normal probabilities are overconfident; each system gets one scale per
+distance class fitted on 2015–2019 and is evaluated on 2020–2026.
+
+| Variant | Acc 2020–26 | Log loss 2020–26 | Drift per season: children / junior-sub23 / senior / veteran | SD fondo 2017 → 2026 |
+|---|---:|---:|---|---|
+| Elo (current) | 76.7 % | 0.477 | +32 / +9 / +27 / +4.3 points | 226 → 288 |
+| Time, each prueba alone | 77.8 % | 0.465 | +0.31 / +0.14 / +0.17 / +0.02 % | 8.4 → 8.8 % |
+| Time, group τ=1 %, q by category | 78.5 % | 0.464 | +0.93 / +0.21 / +0.23 / +0.02 % | 10.8 → 10.9 % |
+| **Time, group τ=2 %, q by category** | **78.9 %** | **0.457** | +0.50 / +0.02 / +0.18 / +0.02 % | 10.1 → 10.5 % |
+
+(Drift: change between consecutive seasons with ≥ 3 races in the distance,
+from the 3rd season on, by the category raced most that year; veteran =
+veteran both seasons. KayakKorner birth years are inferred from categories
+and cannot separate adults from veterans.)
+
+- The time model (τ=2 %) predicts better in every distance: super sprint
+  81.1 % vs 76.7 %, fondo 80.7 % vs 78.2 %, sprint 74.2 % vs 73.3 %, maratón
+  78.7 % vs 78.3 % (maratón gains least: mass starts and packs).
+- **Its scale does not widen**: the spread of established fondo athletes
+  stays at about 10 % while the Elo goes from 226 to 288. Veterans move
+  +0.02 % per season (0.2 % in ten years, 0.02 SD) against +4.3 points (43 in
+  ten years, 0.17 SD) in the Elo. A level in % is a physical unit.
+- **Children's improvement is not measured in absolute terms**: about +0.5–1 %
+  per season when real improvement is several %. Children race their own
+  category at their own distances; when the whole category improves, the
+  model cannot tell it from an easier prueba. Their level is relative to their
+  linked population (closer to a percentile). The same happens to the Elo.
+  Measured with the anchor tests and fixed below.
+- The time model's yearly s goes from 1.0 (2015–2022) to 1.3 (2024–2026): its
+  noise σ is fixed per class and later years look less noisy (more and better
+  timed regattas?). This is about the probability, not the meaning of θ; an
+  adaptive σ is the next step.
+
+### Anchor tests (`time_rating/anclas.py`)
+
+The real distance does not matter if the course is the same. For every
+prueba, the model's difficulty μ estimated only with established boats (≥ 5
+races, level SD ≤ 3 %) and without sharing anything with the group.
+Venues are `Eventos.lugar` (`time_rating/lugares.json`, normalised).
+
+**1. Same course, different years**: μ = course (venue × announced distance ×
+boat × category × sex, in at least 4 years) + year + noise, robust fixed
+effects, 90 % interval by bootstrap of venues. Without rivers, from 2019
+(2015–2018 still carry the cold start):
+
+| Athletes (τ=2 % model) | Pruebas | Venues | Year slope | 90 % interval |
+|---|---:|---:|---:|---|
+| Junior and older | 1566 | 21 | −0.05 %/year | −0.42 … +0.13 |
+| Veterans | 448 | 16 | −0.09 %/year | −0.38 … +0.74 |
+| Children (alevín–cadete) | 1614 | 32 | −1.8 %/year | −2.9 … −1.1 |
+
+**2. Same day, venue, distance and boat, different categories**: μ of the
+prueba minus μ of the seniors' (should be 0). Per year:
+
+| Category | 2016 | 2019 | 2023 | 2026 |
+|---|---:|---:|---:|---:|
+| Cadete | +7.9 % | +2.6 % | +2.4 % | −2.1 % |
+| Junior | +2.4 % | +1.4 % | +1.1 % | −0.8 % |
+| Veteran | +0.2 % | +0.9 % | +0.8 % | +0.8 % |
+| Senior women | (+2.0 % in 2017) | +1.5 % | +1.2 % | +0.6 % |
+
+Sharing the difficulty within the group matters: with each prueba alone
+senior women come out +6.9 % and cadetes +4 %.
+
+- **From junior up the scale is stable**: no drift on the same courses
+  (at most ~0.4 %/year within the interval), and veterans and women keep a
+  constant offset of about 1 % against senior men. A level in 2019 and in 2026
+  can be compared.
+- **Children are not comparable over the years**: on the same courses the
+  same category goes about 1.8 % per year faster than their levels say, and
+  against seniors the same day cadetes move from +8 % to −2 %. Their levels
+  lag behind their real improvement (whole categories improve together and
+  the filter assumes no change on average). Prediction cannot see it (it is
+  common to all rivals in a prueba); it needs an expected improvement per
+  category, fitted with these links and validated on held-out venues.
+
+### Children: expected improvement and starting level (`time_rating/calibrar.py`)
+
+Two parameters: an expected improvement per year of mejora × steps to senior
+/ 7 (steps: prebenjamín 7 … cadete 3, junior 2, sub23 1, senior and veteran
+0), added to the level between races, and newcomers starting at −arranque ×
+steps instead of 0. Chosen on half of the venues (crc32 of the name) to bring
+the children's same-course slope and the same-day gaps against seniors
+(infantil, cadete, junior) to zero; improvement fixes the slope, the start
+fixes the gaps, and they must go together. Best: **mejora 11 %, arranque 7 %**
+(infantil +6.3 %, cadete +4.7 %, junior +3.1 %, sub23 +1.6 % per year;
+`grupo_tau2_qcat_mejora`). The linear shape cannot fit everything (infantiles
+stay a little high, cadetes a little low).
+
+Explored points on the fitting half (slope in %/year from 2019, gaps against
+seniors in %; the first five rows come from an interrupted full grid whose
+results were only printed, the rest are in `results/calibracion.jsonl`):
+
+| mejora | arranque | Children slope | Adults slope | Infantil | Cadete | Junior |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 0 | −1.41 | −0.09 | +3.9 | +1.3 | +0.4 |
+| 0 | 0.02 | −1.47 | −0.32 | +0.1 | −1.9 | −1.2 |
+| 0.03 | 0.03 | −1.07 | −0.18 | +1.0 | −1.0 | −0.5 |
+| 0.06 | 0 | −0.61 | +0.45 | +9.4 | +6.2 | +3.9 |
+| 0.06 | 0.04 | −0.73 | −0.03 | +2.1 | −0.2 | +0.3 |
+| 0.09 | 0.05 | −0.40 | +0.13 | +3.7 | +0.4 | +1.3 |
+| 0.10 | 0.065 | −0.24 | +0.03 | +1.5 | −1.1 | +0.7 |
+| **0.11** | **0.07** | **−0.02** | **+0.07** | **+1.6** | **−1.1** | **+0.9** |
+| 0.11 | 0.08 | −0.05 | −0.06 | −0.5 | −2.6 | +0.0 |
+| 0.12 | 0.075 | +0.14 | +0.11 | +1.7 | −1.0 | +1.0 |
+| 0.13 | 0.065 | +0.28 | +0.33 | +4.1 | +1.6 | +2.5 |
+
+| | Before | After |
+|---|---|---|
+| Children, same course, all venues (from 2019) | −1.84 %/year (−2.9 … −1.1) | −0.54 %/year (−1.4 … +0.1) |
+| Junior and older, same course | −0.05 %/year | +0.09 %/year |
+| Cadete vs seniors same day, by year | +7.9 (2016) … −2.1 (2026) | −0.8 … +0.2, −1.3 (2026) |
+| Held-out venues: cadete / infantil / junior gap | +2.9 / +6.3 / +0.2 % | −0.7 / +4.0 / +0.9 % |
+| Held-out venues: children's slope | −2.3 %/year (−3.4 … +2.2) | −1.0 %/year (−2.2 … +3.4) |
+| Accuracy / log loss 2020–26 | 78.9 % / 0.457 | **79.9 % / 0.446** |
+| Improvement per season, children / junior-sub23 / veteran | +0.5 / +0.02 / +0.02 % | +4.6 / +2.1 / −0.06 % |
+
+Prediction improves (merged groups mix categories) and the measured
+improvement per season becomes realistic. The held-out half is small
+(17 venues for children, 6 for veterans) and its intervals are wide.
+
+### Scale for display
+
+`graficas.py` shows the time rating as points with a fixed meaning: 1500 is
+the median of the athletes active in 2025 (≥ 3 races in the distance, every
+category and sex) in each distance, and 25 points are 1 % of speed (the ratio
+of the Elo spread to the time spread, so the numbers feel like the Elo). The
+base year never changes.
+
+### Charts (`time_rating/graficas.py`)
+
+A local server (http://localhost:8765, about 20 s to start, needs the
+KayakKorner database running locally) with a name search. For up to six
+athletes it draws KayakKorner's radar (same geometry as
+`palista-radar/radar-geometria.ts`, relative to the chosen athlete's category)
+and evolution chart (like `comparison-elo-history`), with the current Elo
+from `EloHistorico` and the time rating side by side. Category cuts are
+computed the same way for both (active that year with ≥ 3 races in the
+distance, by category and sex), so the Elo percentiles may differ slightly
+from the website's. The selection is kept in the URL (`?ids=`).
+
+Below, a table of the chosen athlete's pruebas in the chosen distance:
+
+- **Difficulty**: the prueba's μ against the median μ of all pruebas with the
+  same announced distance and boat (≥ 10), in %: how much slower it was than
+  usual (wind, current, a longer course).
+- **Effective distance**: announced × e^(μ − typical), the distance it would
+  have had in normal conditions. Piragua cross over "3000 m" comes out as
+  about 4600 m (portages); some regional "4500 m" races as about 3000 m.
+- **Field level**: mean level of the boats before the race, in points.
+- **Performance**: how much faster (+) or slower (−) than the level predicted.
+
+Between years, the difficulty of children's pruebas keeps whatever bias
+their levels still have.
+
+### State and next steps
+
+The time rating (`grupo_tau2_qcat_mejora`) predicts better than the current
+Elo (79.9 % vs 76.7 %, log loss 0.446 vs 0.477 on 2020–2026), its scale does
+not widen, and from junior up a level is comparable between years; children
+are comparable on average after the expected-improvement correction.
+Pending:
+
+- adaptive σ per distance and year (the probability scale drifts to 1.3 in
+  2024–2026);
+- a better shape for the children's improvement than linear in category
+  steps (infantiles still high, cadetes low), and more held-out venues;
+- how to bring it to KayakKorner: a separate engine next to `prediction/elo`,
+  stored and shown in points (1500 = 2025 median, 25 points = 1 %).
+
 ## Chosen configuration
 
 ```
@@ -349,3 +548,15 @@ Experiment 4 runs KayakKorner's engine: with the KayakKorner repository at
 `~/projects/KayakKorner` and `stabilisation/annos.json` exported from its
 database, edit the configurations at the bottom of `stabilisation/experiment.py`
 and run it (about 7 minutes per 6 configurations).
+
+Experiment 5: `python time_rating/experiment.py [variant ...]` with the KayakKorner
+virtualenv. The first run replays the Elo (about 4 minutes) and caches it in
+`time_rating/cache.pkl`; each time-model variant then takes about 35 s.
+`time_rating/anclas.py [variant ...] [--sedes ajuste|prueba]` runs the anchor
+tests (about 75 s per variant), on all venues or on one half.
+`time_rating/calibrar.py [mejora,arranque ...]` evaluates pairs on the fitting
+half and appends them to `results/calibracion.jsonl` (about 1–5 minutes each;
+several processes can run in parallel).
+`time_rating/graficas.py` serves the charts at http://localhost:8765;
+`graficas.py <ids or names>` writes the same page as a static
+`time_rating/results/graficas.html` (not tracked).

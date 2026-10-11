@@ -1,0 +1,1462 @@
+{
+ "grupo_tau2_qcat": {
+  "recorrido": {
+   "todas": {
+    "pruebas": 3817,
+    "recorridos": 414,
+    "sedes": 48,
+    "efecto_a\u00f1o_pct": {
+     "2015": -1.16,
+     "2016": 3.76,
+     "2017": 2.89,
+     "2018": 4.33,
+     "2019": -1.28,
+     "2020": -1.27,
+     "2021": 2.21,
+     "2022": -1.03,
+     "2023": -0.97,
+     "2024": -1.27,
+     "2025": -2.89,
+     "2026": -3.31
+    },
+    "pruebas_por_a\u00f1o": {
+     "2015": 7,
+     "2016": 115,
+     "2017": 115,
+     "2018": 133,
+     "2019": 171,
+     "2020": 107,
+     "2021": 179,
+     "2022": 307,
+     "2023": 882,
+     "2024": 597,
+     "2025": 600,
+     "2026": 604
+    },
+    "pendiente_pct_a\u00f1o": -0.472,
+    "ic90_pct_a\u00f1o": [
+     -1.171,
+     0.356
+    ]
+   },
+   "agua_quieta": {
+    "pruebas": 674,
+    "recorridos": 78,
+    "sedes": 3,
+    "efecto_a\u00f1o_pct": {
+     "2016": 4.07,
+     "2017": 6.54,
+     "2018": 7.16,
+     "2019": -7.74,
+     "2020": 6.56,
+     "2021": 7.85,
+     "2022": -5.7,
+     "2023": -2.54,
+     "2024": -4.7,
+     "2025": -4.7,
+     "2026": -6.79
+    },
+    "pruebas_por_a\u00f1o": {
+     "2016": 3,
+     "2017": 10,
+     "2018": 4,
+     "2019": 7,
+     "2020": 7,
+     "2021": 16,
+     "2022": 14,
+     "2023": 141,
+     "2024": 156,
+     "2025": 152,
+     "2026": 164
+    },
+    "pendiente_pct_a\u00f1o": -1.243,
+    "ic90_pct_a\u00f1o": [
+     -0.715,
+     0.068
+    ]
+   },
+   "rio": {
+    "pruebas": 85,
+    "recorridos": 17,
+    "sedes": 4,
+    "efecto_a\u00f1o_pct": {
+     "2016": 24.47,
+     "2017": 23.79,
+     "2019": -23.37,
+     "2021": -11.25,
+     "2022": -3.39,
+     "2023": -0.77,
+     "2024": -3.5,
+     "2025": -4.33,
+     "2026": -1.65
+    },
+    "pruebas_por_a\u00f1o": {
+     "2016": 2,
+     "2017": 2,
+     "2019": 2,
+     "2021": 8,
+     "2022": 8,
+     "2023": 17,
+     "2024": 12,
+     "2025": 17,
+     "2026": 17
+    },
+    "pendiente_pct_a\u00f1o": -2.156,
+    "ic90_pct_a\u00f1o": [
+     -2.15,
+     1.081
+    ]
+   },
+   "otras_sedes": {
+    "pruebas": 2473,
+    "recorridos": 304,
+    "sedes": 41,
+    "efecto_a\u00f1o_pct": {
+     "2015": -1.5,
+     "2016": 4.28,
+     "2017": 2.52,
+     "2018": 4.43,
+     "2019": -0.81,
+     "2020": -0.81,
+     "2021": 1.88,
+     "2022": -0.5,
+     "2023": -0.78,
+     "2024": -0.6,
+     "2025": -3.83,
+     "2026": -4.27
+    },
+    "pruebas_por_a\u00f1o": {
+     "2015": 7,
+     "2016": 110,
+     "2017": 101,
+     "2018": 129,
+     "2019": 149,
+     "2020": 100,
+     "2021": 155,
+     "2022": 285,
+     "2023": 451,
+     "2024": 379,
+     "2025": 323,
+     "2026": 284
+    },
+    "pendiente_pct_a\u00f1o": -0.516,
+    "ic90_pct_a\u00f1o": [
+     -1.353,
+     0.354
+    ]
+   },
+   "junior_y_mayores": {
+    "pruebas": 1817,
+    "recorridos": 208,
+    "sedes": 26,
+    "efecto_a\u00f1o_pct": {
+     "2016": -4.68,
+     "2017": 1.26,
+     "2018": 2.93,
+     "2019": -0.28,
+     "2020": -0.28,
+     "2021": 0.9,
+     "2022": -0.09,
+     "2023": -0.01,
+     "2024": 0.93,
+     "2025": -0.36,
+     "2026": -0.32
+    },
+    "pruebas_por_a\u00f1o": {
+     "2016": 43,
+     "2017": 46,
+     "2018": 45,
+     "2019": 71,
+     "2020": 68,
+     "2021": 66,
+     "2022": 129,
+     "2023": 442,
+     "2024": 317,
+     "2025": 270,
+     "2026": 320
+    },
+    "pendiente_pct_a\u00f1o": 0.091,
+    "ic90_pct_a\u00f1o": [
+     -0.261,
+     0.355
+    ]
+   },
+   "menores": {
+    "pruebas": 2000,
+    "recorridos": 206,
+    "sedes": 40,
+    "efecto_a\u00f1o_pct": {
+     "2015": -0.91,
+     "2016": 9.05,
+     "2017": 4.87,
+     "2018": 4.59,
+     "2019": -1.3,
+     "2020": 2.97,
+     "2021": 5.44,
+     "2022": 1.22,
+     "2023": -3.23,
+     "2024": -5.78,
+     "2025": -7.53,
+     "2026": -9.4
+    },
+    "pruebas_por_a\u00f1o": {
+     "2015": 7,
+     "2016": 72,
+     "2017": 69,
+     "2018": 88,
+     "2019": 100,
+     "2020": 39,
+     "2021": 113,
+     "2022": 178,
+     "2023": 440,
+     "2024": 280,
+     "2025": 330,
+     "2026": 284
+    },
+    "pendiente_pct_a\u00f1o": -1.21,
+    "ic90_pct_a\u00f1o": [
+     -1.779,
+     -0.296
+    ]
+   },
+   "veteranos": {
+    "pruebas": 543,
+    "recorridos": 49,
+    "sedes": 21,
+    "efecto_a\u00f1o_pct": {
+     "2016": -4.74,
+     "2017": 1.65,
+     "2018": 1.16,
+     "2019": 0.4,
+     "2020": -0.41,
+     "2021": 1.78,
+     "2022": -0.68,
+     "2023": 0.92,
+     "2024": 0.9,
+     "2025": -0.82,
+     "2026": -0.17
+    },
+    "pruebas_por_a\u00f1o": {
+     "2016": 12,
+     "2017": 14,
+     "2018": 14,
+     "2019": 32,
+     "2020": 40,
+     "2021": 32,
+     "2022": 60,
+     "2023": 80,
+     "2024": 97,
+     "2025": 91,
+     "2026": 71
+    },
+    "pendiente_pct_a\u00f1o": 0.118,
+    "ic90_pct_a\u00f1o": [
+     -0.211,
+     0.368
+    ]
+   },
+   "junior_y_mayores_2019": {
+    "pruebas": 1566,
+    "recorridos": 164,
+    "sedes": 21,
+    "efecto_a\u00f1o_pct": {
+     "2019": 0.33,
+     "2020": -0.81,
+     "2021": 0.85,
+     "2022": -0.16,
+     "2023": -0.13,
+     "2024": 0.9,
+     "2025": -0.44,
+     "2026": -0.52
+    },
+    "pruebas_por_a\u00f1o": {
+     "2019": 41,
+     "2020": 61,
+     "2021": 49,
+     "2022": 115,
+     "2023": 429,
+     "2024": 312,
+     "2025": 254,
+     "2026": 305
+    },
+    "pendiente_pct_a\u00f1o": -0.047,
+    "ic90_pct_a\u00f1o": [
+     -0.42,
+     0.131
+    ]
+   },
+   "menores_2019": {
+    "pruebas": 1614,
+    "recorridos": 167,
+    "sedes": 32,
+    "efecto_a\u00f1o_pct": {
+     "2019": 1.49,
+     "2020": 6.53,
+     "2021": 6.62,
+     "2022": 2.88,
+     "2023": -1.35,
+     "2024": -3.59,
+     "2025": -5.52,
+     "2026": -7.07
+    },
+    "pruebas_por_a\u00f1o": {
+     "2019": 86,
+     "2020": 38,
+     "2021": 97,
+     "2022": 158,
+     "2023": 397,
+     "2024": 267,
+     "2025": 304,
+     "2026": 267
+    },
+    "pendiente_pct_a\u00f1o": -1.845,
+    "ic90_pct_a\u00f1o": [
+     -2.901,
+     -1.063
+    ]
+   },
+   "veteranos_2019": {
+    "pruebas": 448,
+    "recorridos": 31,
+    "sedes": 16,
+    "efecto_a\u00f1o_pct": {
+     "2019": 0.4,
+     "2020": -1.0,
+     "2021": 1.76,
+     "2022": -1.14,
+     "2023": 0.68,
+     "2024": 0.89,
+     "2025": -0.98,
+     "2026": -0.62
+    },
+    "pruebas_por_a\u00f1o": {
+     "2019": 19,
+     "2020": 36,
+     "2021": 25,
+     "2022": 51,
+     "2023": 75,
+     "2024": 94,
+     "2025": 84,
+     "2026": 64
+    },
+    "pendiente_pct_a\u00f1o": -0.093,
+    "ic90_pct_a\u00f1o": [
+     -0.384,
+     0.742
+    ]
+   }
+  },
+  "categorias": {
+   "cadete": {
+    "n": 524,
+    "mediana_pct": 2.39,
+    "media_pct": 2.41
+   },
+   "cadete 2015-2019": {
+    "n": 134,
+    "mediana_pct": 4.2,
+    "media_pct": 5.02
+   },
+   "cadete 2016": {
+    "n": 25,
+    "mediana_pct": 7.9,
+    "media_pct": 9.04
+   },
+   "cadete 2017": {
+    "n": 40,
+    "mediana_pct": 5.21,
+    "media_pct": 6.86
+   },
+   "cadete 2018": {
+    "n": 37,
+    "mediana_pct": 3.23,
+    "media_pct": 3.48
+   },
+   "cadete 2019": {
+    "n": 32,
+    "mediana_pct": 2.6,
+    "media_pct": 1.37
+   },
+   "cadete 2020-2026": {
+    "n": 390,
+    "mediana_pct": 1.55,
+    "media_pct": 1.51
+   },
+   "cadete 2022": {
+    "n": 30,
+    "mediana_pct": 3.11,
+    "media_pct": 6.74
+   },
+   "cadete 2023": {
+    "n": 101,
+    "mediana_pct": 2.45,
+    "media_pct": 0.26
+   },
+   "cadete 2024": {
+    "n": 93,
+    "mediana_pct": 2.49,
+    "media_pct": 6.37
+   },
+   "cadete 2025": {
+    "n": 82,
+    "mediana_pct": 0.48,
+    "media_pct": -0.69
+   },
+   "cadete 2026": {
+    "n": 71,
+    "mediana_pct": -2.11,
+    "media_pct": -3.98
+   },
+   "infantil": {
+    "n": 54,
+    "mediana_pct": 4.8,
+    "media_pct": 2.0
+   },
+   "infantil 2020-2026": {
+    "n": 54,
+    "mediana_pct": 4.8,
+    "media_pct": 2.0
+   },
+   "infantil 2026": {
+    "n": 21,
+    "mediana_pct": 5.03,
+    "media_pct": 5.34
+   },
+   "junior": {
+    "n": 1623,
+    "mediana_pct": 0.29,
+    "media_pct": 0.78
+   },
+   "junior 2015-2019": {
+    "n": 165,
+    "mediana_pct": 2.04,
+    "media_pct": 2.77
+   },
+   "junior 2016": {
+    "n": 27,
+    "mediana_pct": 2.38,
+    "media_pct": 2.34
+   },
+   "junior 2017": {
+    "n": 53,
+    "mediana_pct": 3.5,
+    "media_pct": 4.35
+   },
+   "junior 2018": {
+    "n": 50,
+    "mediana_pct": 0.88,
+    "media_pct": 1.17
+   },
+   "junior 2019": {
+    "n": 35,
+    "mediana_pct": 1.44,
+    "media_pct": 3.01
+   },
+   "junior 2020-2026": {
+    "n": 1458,
+    "mediana_pct": 0.17,
+    "media_pct": 0.56
+   },
+   "junior 2022": {
+    "n": 36,
+    "mediana_pct": 0.93,
+    "media_pct": 1.07
+   },
+   "junior 2023": {
+    "n": 237,
+    "mediana_pct": 1.08,
+    "media_pct": 0.47
+   },
+   "junior 2024": {
+    "n": 357,
+    "mediana_pct": 0.91,
+    "media_pct": 1.83
+   },
+   "junior 2025": {
+    "n": 393,
+    "mediana_pct": -0.17,
+    "media_pct": 0.22
+   },
+   "junior 2026": {
+    "n": 409,
+    "mediana_pct": -0.82,
+    "media_pct": -0.36
+   },
+   "senior_femenino": {
+    "n": 964,
+    "mediana_pct": 1.04,
+    "media_pct": 1.68
+   },
+   "senior_femenino 2015-2019": {
+    "n": 97,
+    "mediana_pct": 1.45,
+    "media_pct": 1.48
+   },
+   "senior_femenino 2017": {
+    "n": 27,
+    "mediana_pct": 2.0,
+    "media_pct": 0.71
+   },
+   "senior_femenino 2018": {
+    "n": 27,
+    "mediana_pct": 0.85,
+    "media_pct": 2.18
+   },
+   "senior_femenino 2019": {
+    "n": 34,
+    "mediana_pct": 1.48,
+    "media_pct": 1.47
+   },
+   "senior_femenino 2020-2026": {
+    "n": 867,
+    "mediana_pct": 1.01,
+    "media_pct": 1.7
+   },
+   "senior_femenino 2023": {
+    "n": 112,
+    "mediana_pct": 1.26,
+    "media_pct": 2.1
+   },
+   "senior_femenino 2024": {
+    "n": 221,
+    "mediana_pct": 1.06,
+    "media_pct": 2.16
+   },
+   "senior_femenino 2025": {
+    "n": 239,
+    "mediana_pct": 1.49,
+    "media_pct": 1.64
+   },
+   "senior_femenino 2026": {
+    "n": 252,
+    "mediana_pct": 0.67,
+    "media_pct": 1.26
+   },
+   "senior_masculino": {
+    "n": 1670,
+    "mediana_pct": -0.08,
+    "media_pct": -0.56
+   },
+   "senior_masculino 2015-2019": {
+    "n": 156,
+    "mediana_pct": 0.0,
+    "media_pct": -0.94
+   },
+   "senior_masculino 2016": {
+    "n": 24,
+    "mediana_pct": 0.0,
+    "media_pct": -0.76
+   },
+   "senior_masculino 2017": {
+    "n": 45,
+    "mediana_pct": 0.0,
+    "media_pct": -0.43
+   },
+   "senior_masculino 2018": {
+    "n": 41,
+    "mediana_pct": 0.0,
+    "media_pct": -1.44
+   },
+   "senior_masculino 2019": {
+    "n": 46,
+    "mediana_pct": -0.47,
+    "media_pct": -1.08
+   },
+   "senior_masculino 2020": {
+    "n": 22,
+    "mediana_pct": 0.0,
+    "media_pct": -0.62
+   },
+   "senior_masculino 2020-2026": {
+    "n": 1514,
+    "mediana_pct": -0.12,
+    "media_pct": -0.52
+   },
+   "senior_masculino 2021": {
+    "n": 29,
+    "mediana_pct": 0.0,
+    "media_pct": 0.18
+   },
+   "senior_masculino 2022": {
+    "n": 49,
+    "mediana_pct": 0.0,
+    "media_pct": -2.08
+   },
+   "senior_masculino 2023": {
+    "n": 260,
+    "mediana_pct": 0.0,
+    "media_pct": -0.88
+   },
+   "senior_masculino 2024": {
+    "n": 361,
+    "mediana_pct": -0.27,
+    "media_pct": -0.74
+   },
+   "senior_masculino 2025": {
+    "n": 383,
+    "mediana_pct": -0.42,
+    "media_pct": -0.46
+   },
+   "senior_masculino 2026": {
+    "n": 410,
+    "mediana_pct": -0.11,
+    "media_pct": -0.0
+   },
+   "senior_mixto": {
+    "n": 118,
+    "mediana_pct": 0.0,
+    "media_pct": 0.11
+   },
+   "senior_mixto 2020-2026": {
+    "n": 116,
+    "mediana_pct": 0.0,
+    "media_pct": 0.09
+   },
+   "senior_mixto 2023": {
+    "n": 20,
+    "mediana_pct": 0.03,
+    "media_pct": 0.44
+   },
+   "senior_mixto 2024": {
+    "n": 30,
+    "mediana_pct": 0.0,
+    "media_pct": 0.37
+   },
+   "senior_mixto 2025": {
+    "n": 37,
+    "mediana_pct": 0.0,
+    "media_pct": -0.16
+   },
+   "sub23": {
+    "n": 310,
+    "mediana_pct": -0.19,
+    "media_pct": 0.11
+   },
+   "sub23 2020-2026": {
+    "n": 310,
+    "mediana_pct": -0.19,
+    "media_pct": 0.11
+   },
+   "sub23 2023": {
+    "n": 50,
+    "mediana_pct": 0.91,
+    "media_pct": -1.13
+   },
+   "sub23 2024": {
+    "n": 72,
+    "mediana_pct": -0.65,
+    "media_pct": 0.49
+   },
+   "sub23 2025": {
+    "n": 79,
+    "mediana_pct": -0.37,
+    "media_pct": -1.09
+   },
+   "sub23 2026": {
+    "n": 86,
+    "mediana_pct": -0.24,
+    "media_pct": 1.45
+   },
+   "veterano": {
+    "n": 1304,
+    "mediana_pct": 1.02,
+    "media_pct": 2.06
+   },
+   "veterano 2015-2019": {
+    "n": 233,
+    "mediana_pct": 0.46,
+    "media_pct": 0.5
+   },
+   "veterano 2016": {
+    "n": 24,
+    "mediana_pct": 0.21,
+    "media_pct": 0.52
+   },
+   "veterano 2017": {
+    "n": 52,
+    "mediana_pct": 0.05,
+    "media_pct": 0.44
+   },
+   "veterano 2018": {
+    "n": 72,
+    "mediana_pct": 0.8,
+    "media_pct": 0.34
+   },
+   "veterano 2019": {
+    "n": 85,
+    "mediana_pct": 0.92,
+    "media_pct": 0.65
+   },
+   "veterano 2020": {
+    "n": 73,
+    "mediana_pct": 2.16,
+    "media_pct": 3.58
+   },
+   "veterano 2020-2026": {
+    "n": 1071,
+    "mediana_pct": 1.11,
+    "media_pct": 2.4
+   },
+   "veterano 2021": {
+    "n": 73,
+    "mediana_pct": 1.35,
+    "media_pct": 1.06
+   },
+   "veterano 2022": {
+    "n": 111,
+    "mediana_pct": 1.18,
+    "media_pct": 2.05
+   },
+   "veterano 2023": {
+    "n": 185,
+    "mediana_pct": 0.75,
+    "media_pct": 0.86
+   },
+   "veterano 2024": {
+    "n": 199,
+    "mediana_pct": 1.19,
+    "media_pct": 6.76
+   },
+   "veterano 2025": {
+    "n": 226,
+    "mediana_pct": 1.12,
+    "media_pct": 1.52
+   },
+   "veterano 2026": {
+    "n": 204,
+    "mediana_pct": 0.8,
+    "media_pct": 0.79
+   }
+  }
+ },
+ "grupo_tau2_qcat_mejora": {
+  "recorrido": {
+   "todas": {
+    "pruebas": 3817,
+    "recorridos": 414,
+    "sedes": 48,
+    "efecto_a\u00f1o_pct": {
+     "2015": -7.06,
+     "2016": -1.3,
+     "2017": 0.49,
+     "2018": 2.89,
+     "2019": -0.25,
+     "2020": 0.43,
+     "2021": 2.38,
+     "2022": 0.49,
+     "2023": 0.19,
+     "2024": 0.71,
+     "2025": 0.46,
+     "2026": 0.57
+    },
+    "pruebas_por_a\u00f1o": {
+     "2015": 7,
+     "2016": 115,
+     "2017": 115,
+     "2018": 133,
+     "2019": 171,
+     "2020": 107,
+     "2021": 179,
+     "2022": 307,
+     "2023": 882,
+     "2024": 597,
+     "2025": 600,
+     "2026": 604
+    },
+    "pendiente_pct_a\u00f1o": 0.322,
+    "ic90_pct_a\u00f1o": [
+     -0.071,
+     1.059
+    ]
+   },
+   "agua_quieta": {
+    "pruebas": 674,
+    "recorridos": 78,
+    "sedes": 3,
+    "efecto_a\u00f1o_pct": {
+     "2016": -1.6,
+     "2017": -1.54,
+     "2018": 2.83,
+     "2019": -5.67,
+     "2020": 9.66,
+     "2021": 8.69,
+     "2022": -4.51,
+     "2023": -1.75,
+     "2024": -2.05,
+     "2025": -1.38,
+     "2026": -2.67
+    },
+    "pruebas_por_a\u00f1o": {
+     "2016": 3,
+     "2017": 10,
+     "2018": 4,
+     "2019": 7,
+     "2020": 7,
+     "2021": 16,
+     "2022": 14,
+     "2023": 141,
+     "2024": 156,
+     "2025": 152,
+     "2026": 164
+    },
+    "pendiente_pct_a\u00f1o": -0.234,
+    "ic90_pct_a\u00f1o": [
+     -0.113,
+     0.749
+    ]
+   },
+   "rio": {
+    "pruebas": 85,
+    "recorridos": 17,
+    "sedes": 4,
+    "efecto_a\u00f1o_pct": {
+     "2016": 26.81,
+     "2017": 25.2,
+     "2019": -22.55,
+     "2021": -11.93,
+     "2022": -4.31,
+     "2023": -1.72,
+     "2024": -3.63,
+     "2025": -5.29,
+     "2026": -2.58
+    },
+    "pruebas_por_a\u00f1o": {
+     "2016": 2,
+     "2017": 2,
+     "2019": 2,
+     "2021": 8,
+     "2022": 8,
+     "2023": 17,
+     "2024": 12,
+     "2025": 17,
+     "2026": 17
+    },
+    "pendiente_pct_a\u00f1o": -2.468,
+    "ic90_pct_a\u00f1o": [
+     -2.306,
+     1.201
+    ]
+   },
+   "otras_sedes": {
+    "pruebas": 2473,
+    "recorridos": 304,
+    "sedes": 41,
+    "efecto_a\u00f1o_pct": {
+     "2015": -6.74,
+     "2016": -1.35,
+     "2017": 0.85,
+     "2018": 2.72,
+     "2019": -0.07,
+     "2020": -0.03,
+     "2021": 1.97,
+     "2022": 0.64,
+     "2023": 0.34,
+     "2024": 1.5,
+     "2025": -0.27,
+     "2026": 0.42
+    },
+    "pruebas_por_a\u00f1o": {
+     "2015": 7,
+     "2016": 110,
+     "2017": 101,
+     "2018": 129,
+     "2019": 149,
+     "2020": 100,
+     "2021": 155,
+     "2022": 285,
+     "2023": 451,
+     "2024": 379,
+     "2025": 323,
+     "2026": 284
+    },
+    "pendiente_pct_a\u00f1o": 0.298,
+    "ic90_pct_a\u00f1o": [
+     -0.171,
+     1.053
+    ]
+   },
+   "junior_y_mayores": {
+    "pruebas": 1817,
+    "recorridos": 208,
+    "sedes": 26,
+    "efecto_a\u00f1o_pct": {
+     "2016": -5.31,
+     "2017": 0.84,
+     "2018": 3.58,
+     "2019": -0.28,
+     "2020": -0.75,
+     "2021": 0.45,
+     "2022": 0.13,
+     "2023": -0.05,
+     "2024": 0.85,
+     "2025": 0.17,
+     "2026": 0.35
+    },
+    "pruebas_por_a\u00f1o": {
+     "2016": 43,
+     "2017": 46,
+     "2018": 45,
+     "2019": 71,
+     "2020": 68,
+     "2021": 66,
+     "2022": 129,
+     "2023": 442,
+     "2024": 317,
+     "2025": 270,
+     "2026": 320
+    },
+    "pendiente_pct_a\u00f1o": 0.17,
+    "ic90_pct_a\u00f1o": [
+     -0.115,
+     0.521
+    ]
+   },
+   "menores": {
+    "pruebas": 2000,
+    "recorridos": 206,
+    "sedes": 40,
+    "efecto_a\u00f1o_pct": {
+     "2015": -7.94,
+     "2016": -0.39,
+     "2017": -0.39,
+     "2018": 1.97,
+     "2019": -2.25,
+     "2020": 3.16,
+     "2021": 5.68,
+     "2022": 2.0,
+     "2023": -0.66,
+     "2024": -0.39,
+     "2025": -0.41,
+     "2026": -0.39
+    },
+    "pruebas_por_a\u00f1o": {
+     "2015": 7,
+     "2016": 72,
+     "2017": 69,
+     "2018": 88,
+     "2019": 100,
+     "2020": 39,
+     "2021": 113,
+     "2022": 178,
+     "2023": 440,
+     "2024": 280,
+     "2025": 330,
+     "2026": 284
+    },
+    "pendiente_pct_a\u00f1o": 0.297,
+    "ic90_pct_a\u00f1o": [
+     -0.329,
+     0.927
+    ]
+   },
+   "veteranos": {
+    "pruebas": 543,
+    "recorridos": 49,
+    "sedes": 21,
+    "efecto_a\u00f1o_pct": {
+     "2016": -5.18,
+     "2017": 2.14,
+     "2018": 1.16,
+     "2019": 0.15,
+     "2020": -1.05,
+     "2021": 1.54,
+     "2022": -0.17,
+     "2023": 0.99,
+     "2024": 1.05,
+     "2025": -0.61,
+     "2026": -0.02
+    },
+    "pruebas_por_a\u00f1o": {
+     "2016": 12,
+     "2017": 14,
+     "2018": 14,
+     "2019": 32,
+     "2020": 40,
+     "2021": 32,
+     "2022": 60,
+     "2023": 80,
+     "2024": 97,
+     "2025": 91,
+     "2026": 71
+    },
+    "pendiente_pct_a\u00f1o": 0.155,
+    "ic90_pct_a\u00f1o": [
+     -0.238,
+     0.393
+    ]
+   },
+   "junior_y_mayores_2019": {
+    "pruebas": 1566,
+    "recorridos": 164,
+    "sedes": 21,
+    "efecto_a\u00f1o_pct": {
+     "2019": 0.02,
+     "2020": -1.45,
+     "2021": 0.85,
+     "2022": -0.03,
+     "2023": -0.24,
+     "2024": 0.71,
+     "2025": -0.01,
+     "2026": 0.15
+    },
+    "pruebas_por_a\u00f1o": {
+     "2019": 41,
+     "2020": 61,
+     "2021": 49,
+     "2022": 115,
+     "2023": 429,
+     "2024": 312,
+     "2025": 254,
+     "2026": 305
+    },
+    "pendiente_pct_a\u00f1o": 0.089,
+    "ic90_pct_a\u00f1o": [
+     -0.274,
+     0.272
+    ]
+   },
+   "menores_2019": {
+    "pruebas": 1614,
+    "recorridos": 167,
+    "sedes": 32,
+    "efecto_a\u00f1o_pct": {
+     "2019": -2.43,
+     "2020": 5.72,
+     "2021": 3.53,
+     "2022": -0.7,
+     "2023": -1.7,
+     "2024": -1.49,
+     "2025": -1.6,
+     "2026": -1.34
+    },
+    "pruebas_por_a\u00f1o": {
+     "2019": 86,
+     "2020": 38,
+     "2021": 97,
+     "2022": 158,
+     "2023": 397,
+     "2024": 267,
+     "2025": 304,
+     "2026": 267
+    },
+    "pendiente_pct_a\u00f1o": -0.536,
+    "ic90_pct_a\u00f1o": [
+     -1.448,
+     0.125
+    ]
+   },
+   "veteranos_2019": {
+    "pruebas": 448,
+    "recorridos": 31,
+    "sedes": 16,
+    "efecto_a\u00f1o_pct": {
+     "2019": 0.22,
+     "2020": -1.53,
+     "2021": 1.42,
+     "2022": -0.41,
+     "2023": 0.65,
+     "2024": 0.89,
+     "2025": -0.9,
+     "2026": -0.34
+    },
+    "pruebas_por_a\u00f1o": {
+     "2019": 19,
+     "2020": 36,
+     "2021": 25,
+     "2022": 51,
+     "2023": 75,
+     "2024": 94,
+     "2025": 84,
+     "2026": 64
+    },
+    "pendiente_pct_a\u00f1o": -0.016,
+    "ic90_pct_a\u00f1o": [
+     -0.326,
+     0.933
+    ]
+   }
+  },
+  "categorias": {
+   "cadete": {
+    "n": 524,
+    "mediana_pct": -0.76,
+    "media_pct": -0.35
+   },
+   "cadete 2015-2019": {
+    "n": 134,
+    "mediana_pct": -0.31,
+    "media_pct": 0.22
+   },
+   "cadete 2016": {
+    "n": 25,
+    "mediana_pct": -0.78,
+    "media_pct": 2.65
+   },
+   "cadete 2017": {
+    "n": 40,
+    "mediana_pct": -0.03,
+    "media_pct": 1.43
+   },
+   "cadete 2018": {
+    "n": 37,
+    "mediana_pct": -0.54,
+    "media_pct": -0.61
+   },
+   "cadete 2019": {
+    "n": 32,
+    "mediana_pct": -0.11,
+    "media_pct": -2.25
+   },
+   "cadete 2020-2026": {
+    "n": 390,
+    "mediana_pct": -0.94,
+    "media_pct": -0.54
+   },
+   "cadete 2022": {
+    "n": 30,
+    "mediana_pct": 0.2,
+    "media_pct": 3.26
+   },
+   "cadete 2023": {
+    "n": 101,
+    "mediana_pct": -1.98,
+    "media_pct": -3.83
+   },
+   "cadete 2024": {
+    "n": 93,
+    "mediana_pct": -0.23,
+    "media_pct": 3.75
+   },
+   "cadete 2025": {
+    "n": 82,
+    "mediana_pct": 0.19,
+    "media_pct": -1.38
+   },
+   "cadete 2026": {
+    "n": 71,
+    "mediana_pct": -1.28,
+    "media_pct": -2.72
+   },
+   "infantil": {
+    "n": 54,
+    "mediana_pct": 2.43,
+    "media_pct": -2.18
+   },
+   "infantil 2020-2026": {
+    "n": 54,
+    "mediana_pct": 2.43,
+    "media_pct": -2.18
+   },
+   "infantil 2026": {
+    "n": 21,
+    "mediana_pct": 4.02,
+    "media_pct": 4.41
+   },
+   "junior": {
+    "n": 1623,
+    "mediana_pct": 0.85,
+    "media_pct": 1.12
+   },
+   "junior 2015-2019": {
+    "n": 165,
+    "mediana_pct": 0.34,
+    "media_pct": 1.2
+   },
+   "junior 2016": {
+    "n": 27,
+    "mediana_pct": -0.59,
+    "media_pct": -1.1
+   },
+   "junior 2017": {
+    "n": 53,
+    "mediana_pct": 1.25,
+    "media_pct": 2.54
+   },
+   "junior 2018": {
+    "n": 50,
+    "mediana_pct": -0.68,
+    "media_pct": 0.15
+   },
+   "junior 2019": {
+    "n": 35,
+    "mediana_pct": 0.58,
+    "media_pct": 2.46
+   },
+   "junior 2020-2026": {
+    "n": 1458,
+    "mediana_pct": 0.86,
+    "media_pct": 1.11
+   },
+   "junior 2022": {
+    "n": 36,
+    "mediana_pct": 1.2,
+    "media_pct": 1.48
+   },
+   "junior 2023": {
+    "n": 237,
+    "mediana_pct": -0.33,
+    "media_pct": -0.69
+   },
+   "junior 2024": {
+    "n": 357,
+    "mediana_pct": 0.45,
+    "media_pct": 1.26
+   },
+   "junior 2025": {
+    "n": 393,
+    "mediana_pct": 0.98,
+    "media_pct": 1.24
+   },
+   "junior 2026": {
+    "n": 409,
+    "mediana_pct": 1.4,
+    "media_pct": 1.77
+   },
+   "senior_femenino": {
+    "n": 964,
+    "mediana_pct": 0.79,
+    "media_pct": 1.4
+   },
+   "senior_femenino 2015-2019": {
+    "n": 97,
+    "mediana_pct": 0.34,
+    "media_pct": 0.68
+   },
+   "senior_femenino 2017": {
+    "n": 27,
+    "mediana_pct": 0.33,
+    "media_pct": -0.35
+   },
+   "senior_femenino 2018": {
+    "n": 27,
+    "mediana_pct": 0.21,
+    "media_pct": 1.45
+   },
+   "senior_femenino 2019": {
+    "n": 34,
+    "mediana_pct": 0.51,
+    "media_pct": 0.79
+   },
+   "senior_femenino 2020-2026": {
+    "n": 867,
+    "mediana_pct": 0.86,
+    "media_pct": 1.48
+   },
+   "senior_femenino 2023": {
+    "n": 112,
+    "mediana_pct": 0.89,
+    "media_pct": 1.62
+   },
+   "senior_femenino 2024": {
+    "n": 221,
+    "mediana_pct": 0.89,
+    "media_pct": 1.98
+   },
+   "senior_femenino 2025": {
+    "n": 239,
+    "mediana_pct": 1.12,
+    "media_pct": 1.43
+   },
+   "senior_femenino 2026": {
+    "n": 252,
+    "mediana_pct": 0.58,
+    "media_pct": 1.17
+   },
+   "senior_masculino": {
+    "n": 1670,
+    "mediana_pct": 0.0,
+    "media_pct": -0.36
+   },
+   "senior_masculino 2015-2019": {
+    "n": 156,
+    "mediana_pct": 0.0,
+    "media_pct": -0.43
+   },
+   "senior_masculino 2016": {
+    "n": 24,
+    "mediana_pct": 0.0,
+    "media_pct": -0.43
+   },
+   "senior_masculino 2017": {
+    "n": 45,
+    "mediana_pct": 0.0,
+    "media_pct": 0.21
+   },
+   "senior_masculino 2018": {
+    "n": 41,
+    "mediana_pct": 0.0,
+    "media_pct": -0.96
+   },
+   "senior_masculino 2019": {
+    "n": 46,
+    "mediana_pct": 0.0,
+    "media_pct": -0.59
+   },
+   "senior_masculino 2020": {
+    "n": 22,
+    "mediana_pct": 0.0,
+    "media_pct": -0.28
+   },
+   "senior_masculino 2020-2026": {
+    "n": 1514,
+    "mediana_pct": -0.02,
+    "media_pct": -0.35
+   },
+   "senior_masculino 2021": {
+    "n": 29,
+    "mediana_pct": 0.0,
+    "media_pct": 0.36
+   },
+   "senior_masculino 2022": {
+    "n": 49,
+    "mediana_pct": 0.0,
+    "media_pct": -1.96
+   },
+   "senior_masculino 2023": {
+    "n": 260,
+    "mediana_pct": 0.0,
+    "media_pct": -0.67
+   },
+   "senior_masculino 2024": {
+    "n": 361,
+    "mediana_pct": -0.2,
+    "media_pct": -0.57
+   },
+   "senior_masculino 2025": {
+    "n": 383,
+    "mediana_pct": -0.32,
+    "media_pct": -0.3
+   },
+   "senior_masculino 2026": {
+    "n": 410,
+    "mediana_pct": -0.02,
+    "media_pct": 0.15
+   },
+   "senior_mixto": {
+    "n": 118,
+    "mediana_pct": 0.0,
+    "media_pct": 0.09
+   },
+   "senior_mixto 2020-2026": {
+    "n": 116,
+    "mediana_pct": 0.0,
+    "media_pct": 0.09
+   },
+   "senior_mixto 2023": {
+    "n": 20,
+    "mediana_pct": 0.0,
+    "media_pct": 0.57
+   },
+   "senior_mixto 2024": {
+    "n": 30,
+    "mediana_pct": 0.0,
+    "media_pct": 0.27
+   },
+   "senior_mixto 2025": {
+    "n": 37,
+    "mediana_pct": 0.0,
+    "media_pct": -0.15
+   },
+   "sub23": {
+    "n": 310,
+    "mediana_pct": -0.09,
+    "media_pct": 0.11
+   },
+   "sub23 2020-2026": {
+    "n": 310,
+    "mediana_pct": -0.09,
+    "media_pct": 0.11
+   },
+   "sub23 2023": {
+    "n": 50,
+    "mediana_pct": 0.16,
+    "media_pct": -1.77
+   },
+   "sub23 2024": {
+    "n": 72,
+    "mediana_pct": -0.93,
+    "media_pct": 0.26
+   },
+   "sub23 2025": {
+    "n": 79,
+    "mediana_pct": -0.08,
+    "media_pct": -0.94
+   },
+   "sub23 2026": {
+    "n": 86,
+    "mediana_pct": -0.01,
+    "media_pct": 1.97
+   },
+   "veterano": {
+    "n": 1304,
+    "mediana_pct": 1.27,
+    "media_pct": 2.34
+   },
+   "veterano 2015-2019": {
+    "n": 233,
+    "mediana_pct": 1.03,
+    "media_pct": 1.1
+   },
+   "veterano 2016": {
+    "n": 24,
+    "mediana_pct": 0.55,
+    "media_pct": 1.0
+   },
+   "veterano 2017": {
+    "n": 52,
+    "mediana_pct": 0.45,
+    "media_pct": 1.3
+   },
+   "veterano 2018": {
+    "n": 72,
+    "mediana_pct": 1.42,
+    "media_pct": 0.94
+   },
+   "veterano 2019": {
+    "n": 85,
+    "mediana_pct": 0.99,
+    "media_pct": 1.14
+   },
+   "veterano 2020": {
+    "n": 73,
+    "mediana_pct": 2.16,
+    "media_pct": 3.55
+   },
+   "veterano 2020-2026": {
+    "n": 1071,
+    "mediana_pct": 1.34,
+    "media_pct": 2.62
+   },
+   "veterano 2021": {
+    "n": 73,
+    "mediana_pct": 1.37,
+    "media_pct": 0.93
+   },
+   "veterano 2022": {
+    "n": 111,
+    "mediana_pct": 0.94,
+    "media_pct": 2.04
+   },
+   "veterano 2023": {
+    "n": 185,
+    "mediana_pct": 0.9,
+    "media_pct": 1.2
+   },
+   "veterano 2024": {
+    "n": 199,
+    "mediana_pct": 1.52,
+    "media_pct": 7.15
+   },
+   "veterano 2025": {
+    "n": 226,
+    "mediana_pct": 1.47,
+    "media_pct": 1.78
+   },
+   "veterano 2026": {
+    "n": 204,
+    "mediana_pct": 1.05,
+    "media_pct": 1.0
+   }
+  }
+ }
+}
