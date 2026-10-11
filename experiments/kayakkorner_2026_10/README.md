@@ -549,6 +549,11 @@ Experiment 4 runs KayakKorner's engine: with the KayakKorner repository at
 database, edit the configurations at the bottom of `stabilisation/experiment.py`
 and run it (about 7 minutes per 6 configurations).
 
+KayakKorner replaced its ELO with this time rating (the Índice de rendimiento,
+branch `feat/indice-rendimiento`) and deleted `prediction/elo`. Experiments 1–4
+and the Elo replay of experiment 5 need a KayakKorner checkout from before that
+change (for example commit `e044025`).
+
 Experiment 5: `python time_rating/experiment.py [variant ...]` with the KayakKorner
 virtualenv. The first run replays the Elo (about 4 minutes) and caches it in
 `time_rating/cache.pkl`; each time-model variant then takes about 35 s.

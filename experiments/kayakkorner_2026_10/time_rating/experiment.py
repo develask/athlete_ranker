@@ -42,16 +42,17 @@ from pathlib import Path
 
 KK = Path.home() / "projects/KayakKorner"
 sys.path.insert(0, str(KK))
-from prediction.elo import motor
-from prediction.elo.grupos import grupos_de_regata
-from prediction.elo.motor import Parametros
-from scripts.validar_elo import regatas_del_dataset
 
 AQUI = Path(__file__).parent
 DATOS = Path.home() / "projects/athlete_ranker/data/processed/dataset_kk.json"
 CACHE = AQUI / "cache.pkl"
-CLASES = motor.CLASES
+CLASES = ("super_sprint", "sprint", "fondo", "maraton")
 LN10 = math.log(10)
+
+
+def esperado(a, b):
+    """La probabilidad del Elo de que gane a (la de prediction/elo/motor.py)."""
+    return 1.0 / (1.0 + 10.0 ** ((b - a) / 400.0))
 
 
 # ---------------------------------------------------------------------------
@@ -65,6 +66,13 @@ def unidades(grupo):
 
 
 def pasada_elo():
+    """Reproduce el ELO de KayakKorner. KayakKorner lo sustituyó por el Índice de
+    rendimiento (rama feat/indice-rendimiento): para regenerar cache.pkl hace falta
+    una versión anterior, con prediction/elo (por ejemplo el commit e044025)."""
+    from prediction.elo import motor
+    from prediction.elo.grupos import grupos_de_regata
+    from prediction.elo.motor import Parametros
+    from scripts.validar_elo import regatas_del_dataset
     datos = json.load(open(DATOS))
     regatas = sorted(regatas_del_dataset(datos), key=lambda r: (r.fecha, r.id))
     capturado = {}
@@ -386,7 +394,7 @@ def correr(cache, cats, config, completo=True):
         for (i, j), z in zs.items():
             ti, tj = g["botes"][i][1], g["botes"][j][1]
             real = 1.0 if ti < tj else 0.0 if ti > tj else 0.5
-            m_elo.add(motor.esperado(elo[i], elo[j]), real); m_t.add(phi(z), real)
+            m_elo.add(esperado(elo[i], elo[j]), real); m_t.add(phi(z), real)
             if real != 0.5 and random.random() < 0.1:
                 muestra.append((año, g["clase"], elo[i] - elo[j], z, real))
         if completo:
