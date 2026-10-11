@@ -61,7 +61,7 @@ def meta():
 
 
 def mus_del_modelo(cache, cats, config):
-    modelo = X.ModeloTiempos(**config, cats=cats)
+    modelo = X.nuevo_modelo(config, cats)
     for g in cache["grupos"]:
         modelo.predecir_y_actualizar(g)
     return modelo.mus

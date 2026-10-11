@@ -475,10 +475,63 @@ Below, a table of the chosen athlete's pruebas in the chosen distance:
 Between years, the difficulty of children's pruebas keeps whatever bias
 their levels still have.
 
+### Transfer between distances (`ModeloTiemposMulti`)
+
+In the base model each distance is independent, except that a new distance
+starts from the athlete's most certain one. Here the four levels are a vector
+with a 4×4 covariance: newcomers start at p0·R and the noise between races is
+q·days·R, so racing one distance moves the others according to their
+covariance with it. Variants (all with the causal category):
+
+- `multi_R`: R = correlation of the final levels of the base model between
+  distances (athletes with ≥ 5 races in both): 0.78–0.90.
+- `multi_Rcoh`: the same after subtracting the median of the athlete's cohort
+  (category and sex): 0.66–0.86. It is the correlation the radar needs (it
+  compares with the category); across all athletes, category differences
+  inflate it (an infantil is slower at everything).
+- `multi_R_prior` (correlated start, independent noise), `multi_R_ruido_mitad`
+  (noise correlated at half), `multi_R_mitad`, `multi_independientes` (R = I).
+- `multi_R2023`: R estimated with data up to 2023, to check 2024–2026 out of
+  sample.
+
+New measures: log loss of pairs where some athlete has fewer than 3 races in
+the distance ("few"), where some athlete starts the distance having raced
+others ("starts"), and where all have 3 or more; and how distinct the radar
+is: mean absolute deviation of each distance from the athlete's own mean
+(athletes with ≥ 5 races in at least two distances).
+
+| Variant | Log loss 2020–26 | Few | Starts | Settled | 2024–26 | Profile spread |
+|---|---:|---:|---:|---:|---:|---:|
+| Base (`grupo_tau2_qcat_mejora_causal`) | 0.446 | 0.492 | 0.518 | 0.421 | 0.436 | 2.67 % |
+| R = I | 0.463 | 0.530 | 0.659 | 0.426 | — | 3.15 % |
+| Correlated start only | 0.447 | 0.502 | 0.570 | 0.417 | 0.435 | 2.71 % |
+| Noise correlated at half | 0.438 | 0.485 | 0.509 | 0.412 | 0.425 | 2.26 % |
+| **R within cohort** | **0.435** | **0.482** | **0.493** | **0.410** | **0.421** | **1.99 %** |
+| R | 0.432 | 0.476 | 0.478 | 0.408 | 0.418 | 1.73 % |
+
+R estimated up to 2023 gives the same on 2024–2026 (0.417 against 0.418), so
+there is no leakage. Effective transfer with R, for an athlete settled in both
+distances (≥ 10 races): racing fondo moves sprint by 57 % of the fondo change;
+with no races in the other distance, 55–90 %. The old ELO moved settled
+distances by a few percent.
+
+The more correlation, the better the prediction and the flatter the radar:
+with R, profiles are 35 % flatter (the typical sprint–fondo difference of an
+athlete goes from 7.9 % to 5.1 %). Better prediction among settled athletes
+says part of the base model's differences are noise (few races, stale levels),
+but the transfer also pulls real differences together. **Decision**:
+`multi_Rcoh` (three quarters of the gain, profiles 25 % flatter, the
+correlation that matches what the radar compares). Anchors are like the base
+model's or better for children (slope −0.43 %/year, infantiles +1.2 % against
+seniors), veterans and women; junior and older show the same small drift as
+with R (+0.16 %/year, interval +0.05 … +0.91), within the tolerance but worth
+watching.
+
 ### State and next steps
 
-The time rating (`grupo_tau2_qcat_mejora`) predicts better than the current
-Elo (79.9 % vs 76.7 %, log loss 0.446 vs 0.477 on 2020–2026), its scale does
+The time rating (`grupo_tau2_qcat_mejora_causal`, and with transfer between
+distances `multi_Rcoh`) predicts better than the current Elo (79.9 % vs
+76.7 %, log loss 0.446 vs 0.477 on 2020–2026; 0.435 with transfer), its scale does
 not widen, and from junior up a level is comparable between years; children
 are comparable on average after the expected-improvement correction.
 Pending:
