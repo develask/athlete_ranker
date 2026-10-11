@@ -119,14 +119,18 @@ PASOS_MAX = 7
 
 
 class ModeloTiempos:
-    def __init__(self, sigma, q_anual, p0_sd, transfer_sd, huber, tau=None, cats=None, mejora=0.0, arranque=0.0):
+    def __init__(self, sigma, q_anual, p0_sd, transfer_sd, huber, tau=None, cats=None, mejora=0.0, arranque=0.0,
+                 causal=False):
         """q_anual: desviación típica del cambio de nivel en un año sin datos, por grupo de
         categoría ({"menores": .., "junior_sub23": .., "senior": .., "veterano": ..}) o un
         número para todos. tau: desviación de la dificultad de cada prueba respecto a la de
         su grupo (None: cada prueba por su cuenta).
         mejora: mejora esperada al año (log-velocidad) de un prebenjamín; la de cada categoría es
         mejora × pasos hasta senior / 7 (senior y veterano, 0). arranque: un palista nuevo empieza en
-        −arranque × pasos hasta senior, en vez de en 0."""
+        −arranque × pasos hasta senior, en vez de en 0.
+        causal: la categoría (para q, mejora y arranque) es la de la prueba que se está corriendo,
+        no la más corrida del año; no mira el futuro y no cambia al llegar regatas nuevas (la que
+        haría falta en KayakKorner para actualizar regata a regata)."""
         self.sigma2 = {c: v * v for c, v in sigma.items()}
         q = q_anual if isinstance(q_anual, dict) else dict.fromkeys(GRUPOS_CATEGORIA.values(), q_anual)
         self.q = {g: v ** 2 / 365.0 for g, v in q.items()}
@@ -139,6 +143,7 @@ class ModeloTiempos:
         self.est = {}  # (palista, clase) -> [θ, P, última fecha, carreras]
         self.mejora, self.arranque = mejora, arranque
         self.cats_finas = categorias(finas=True) if (mejora or arranque) else {}
+        self.cat_prueba = categoria_pruebas() if causal else None
         # Diagnóstico para las pruebas de anclaje: por prueba, la dificultad estimada solo
         # con los botes asentados y sin compartir nada con el grupo.
         self.mus = []  # (prueba_id, μ, botes asentados)
@@ -149,7 +154,7 @@ class ModeloTiempos:
         self.pruebas = {}
         self.actuaciones = defaultdict(list)
 
-    def _preparar(self, palista, clase, fecha):
+    def _preparar(self, palista, clase, fecha, cat=None):
         s = self.est.get((palista, clase))
         if s is None:
             otras = [self.est[(palista, c)] for c in CLASES if (palista, c) in self.est]
@@ -157,19 +162,20 @@ class ModeloTiempos:
                 mejor = min(otras, key=lambda o: o[1])
                 s = [mejor[0], min(self.p0, mejor[1] + self.pt), fecha, 0]
             else:
-                s = [-self.arranque * self._pasos(palista, fecha), self.p0, fecha, 0]
+                s = [-self.arranque * self._pasos(palista, fecha, cat), self.p0, fecha, 0]
             self.est[(palista, clase)] = s
         else:
             dias = (fecha - s[2]).days
-            q = self.q.get(self.cats.get((palista, fecha.year)), self.q_defecto)
+            grupo = GRUPOS_CATEGORIA.get(cat) if cat else self.cats.get((palista, fecha.year))
+            q = self.q.get(grupo, self.q_defecto)
             s[1] = min(self.p0, s[1] + q * dias)
             if self.mejora:
-                s[0] += self.mejora * self._pasos(palista, fecha) / PASOS_MAX * dias / 365.0
+                s[0] += self.mejora * self._pasos(palista, fecha, cat) / PASOS_MAX * dias / 365.0
             s[2] = fecha
         return s
 
-    def _pasos(self, palista, fecha):
-        return PASOS_HASTA_SENIOR.get(self.cats_finas.get((palista, fecha.year)), 0)
+    def _pasos(self, palista, fecha, cat=None):
+        return PASOS_HASTA_SENIOR.get(cat or self.cats_finas.get((palista, fecha.year)), 0)
 
     def _media_robusta(self, indices, x, w, previa=None):
         """Media ponderada con dos vueltas de Huber; `previa` = (media, varianza) a priori."""
@@ -191,7 +197,13 @@ class ModeloTiempos:
 
     def predecir_y_actualizar(self, g):
         clase, fecha, sigma2 = g["clase"], g["fecha"], self.sigma2[g["clase"]]
-        estados = [[self._preparar(pal, clase, fecha) for pal in tripulacion] for tripulacion, _ in g["botes"]]
+        cat_bote = [None] * len(g["botes"])
+        if self.cat_prueba is not None:
+            for prueba_id, indices in zip(g.get("pruebas_unidad", ()), g["unidades"]):
+                for b in indices:
+                    cat_bote[b] = self.cat_prueba.get(prueba_id)
+        estados = [[self._preparar(pal, clase, fecha, cat_bote[b]) for pal in tripulacion]
+                   for b, (tripulacion, _) in enumerate(g["botes"])]
         theta = [sum(s[0] for s in ss) / len(ss) for ss in estados]
         var = [sum(s[1] for s in ss) / len(ss) ** 2 for ss in estados]
         y = [math.log(t) for _, t in g["botes"]]
@@ -262,6 +274,14 @@ def categorias(finas=False):
                             cuenta[(int(x), año)][g] += 1
     _CATEGORIAS[finas] = {k: max(v, key=v.get) for k, v in cuenta.items()}
     return _CATEGORIAS[finas]
+
+
+def categoria_pruebas():
+    """{prueba: categoría}."""
+    if "pruebas" not in _CATEGORIAS:
+        _CATEGORIAS["pruebas"] = {int(p["prueba_id"]): p.get("categoria") for r in json.load(open(DATOS))
+                                  for p in r["pruebas"] if p.get("categoria") in GRUPOS_CATEGORIA}
+    return _CATEGORIAS["pruebas"]
 
 
 def deriva(finales, cats):
@@ -410,6 +430,9 @@ VARIANTES = {
     "grupo_tau2_qcat": dict(BASE, tau=0.02, q_anual=Q_CATEGORIA),
     # Mejora esperada y arranque de los menores calibrados con las anclas (calibrar.py).
     "grupo_tau2_qcat_mejora": dict(BASE, tau=0.02, q_anual=Q_CATEGORIA, mejora=0.11, arranque=0.07),
+    # Lo mismo con la categoría de la prueba que se corre (sin mirar el futuro): la de KayakKorner.
+    "grupo_tau2_qcat_mejora_causal": dict(BASE, tau=0.02, q_anual=Q_CATEGORIA, mejora=0.11, arranque=0.07,
+                                          causal=True),
 }
 
 if __name__ == "__main__":
